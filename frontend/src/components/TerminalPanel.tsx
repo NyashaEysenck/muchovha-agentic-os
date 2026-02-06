@@ -5,7 +5,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { useStore } from '../store'
-import { Search, ChevronUp, ChevronDown, X, Minus, Plus, TerminalSquare, Sparkles, Send, Loader2 } from 'lucide-react'
+import { Search, ChevronUp, ChevronDown, X, Minus, Plus, TerminalSquare, Sparkles, Send, Loader2, AlertTriangle, Zap } from 'lucide-react'
 import './TerminalPanel.css'
 
 const ERROR_PATTERNS = [
@@ -35,9 +35,18 @@ export function TerminalPanel() {
   const isShellmateThinking = useStore((s) => s.isShellmateThinking)
   const setShellmateThinking = useStore((s) => s.setShellmateThinking)
 
+  const isChatOpen = useStore((s) => s.isChatOpen)
+  const toggleChat = useStore((s) => s.toggleChat)
+  const addMessage = useStore((s) => s.addChatMessage)
+  const updateMessage = useStore((s) => s.updateChatMessage)
+  const setAiThinking = useStore((s) => s.setAiThinking)
+
   const [shellInput, setShellInput] = useState('')
+  const [errorBanner, setErrorBanner] = useState<{ pattern: string; timestamp: number } | null>(null)
+  const [errorBannerBusy, setErrorBannerBusy] = useState(false)
   const shellInputRef = useRef<HTMLInputElement>(null)
   const lastErrorRef = useRef(0)
+  const errorBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isShellmate = assistantMode === 'terminal'
 
@@ -200,6 +209,97 @@ export function TerminalPanel() {
     }
   }, [shellInput, isShellmateThinking, sessionId, setShellmateThinking])
 
+  // ── Error banner click → send to AI based on mode ────────────────────
+  const handleErrorBannerClick = useCallback(async () => {
+    if (errorBannerBusy) return
+    const context = (window as any).__getTerminalContext?.() || ''
+    const errorMsg = 'I got an error in my terminal. What went wrong and how do I fix it?'
+
+    // Dismiss the banner
+    setErrorBanner(null)
+    if (errorBannerTimerRef.current) clearTimeout(errorBannerTimerRef.current)
+
+    if (isShellmate) {
+      // ── Shellmate mode: render inline in terminal ─────────────────
+      sendShellmate(errorMsg)
+    } else {
+      // ── Guided / Autopilot mode: open chat panel and send ─────────
+      if (!isChatOpen) toggleChat()
+      setErrorBannerBusy(true)
+
+      const userMsg = {
+        id: `user-${Date.now()}`,
+        role: 'user' as const,
+        text: errorMsg,
+        timestamp: Date.now(),
+      }
+      addMessage(userMsg)
+      setAiThinking(true)
+
+      const aiId = `ai-${Date.now()}`
+      addMessage({
+        id: aiId,
+        role: 'ai' as const,
+        text: '',
+        timestamp: Date.now(),
+        streaming: true,
+      })
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: errorMsg,
+            terminal_context: context,
+            session_id: sessionId,
+            mode: assistantMode,
+          }),
+        })
+        const data = await res.json()
+
+        if (data.error) {
+          updateMessage(aiId, { text: 'Error: ' + data.error, streaming: false })
+        } else {
+          const fullText = data.response
+          let i = 0
+          const interval = setInterval(() => {
+            i += 8
+            if (i >= fullText.length) {
+              updateMessage(aiId, { text: fullText, streaming: false })
+              // Autopilot: extract and run commands
+              if (assistantMode === 'autopilot') {
+                const blocks = [...fullText.matchAll(/```(?:bash|sh|shell)?\n([\s\S]*?)```/g)]
+                const cmds: string[] = []
+                for (const match of blocks) {
+                  const body = (match[1] || '').trim()
+                  if (!body) continue
+                  for (const line of body.split('\n')) {
+                    const clean = line.replace(/^\$\s?/, '').trim()
+                    if (clean && !clean.startsWith('#') && !clean.startsWith('//')) cmds.push(clean)
+                  }
+                }
+                if (cmds.length) {
+                  addToast({ type: 'info', message: `Autopilot running ${cmds.length} fix command(s)` })
+                  const runInTerminal = (window as any).__runInTerminal
+                  if (runInTerminal) cmds.forEach((cmd, idx) => setTimeout(() => runInTerminal(cmd), idx * 200))
+                }
+              }
+              clearInterval(interval)
+            } else {
+              updateMessage(aiId, { text: fullText.slice(0, i) })
+            }
+          }, 12)
+        }
+      } catch (err: any) {
+        updateMessage(aiId, { text: 'Failed to reach AI: ' + err.message, streaming: false })
+      } finally {
+        setAiThinking(false)
+        setErrorBannerBusy(false)
+      }
+    }
+  }, [errorBannerBusy, isShellmate, isChatOpen, toggleChat, sessionId, assistantMode, sendShellmate, addMessage, updateMessage, setAiThinking, addToast])
+
   // Focus shellmate input when mode changes
   useEffect(() => {
     if (isShellmate) {
@@ -247,11 +347,17 @@ export function TerminalPanel() {
           for (const pattern of ERROR_PATTERNS) {
             if (lower.includes(pattern)) {
               lastErrorRef.current = now
-              addToast({
-                type: 'warning',
-                message: 'Error detected \u2014 ask AI for help (Ctrl+K)',
-                duration: 5000,
-              })
+
+              // Write an ANSI hint directly into the terminal
+              termRef.current?.write(
+                '\r\n\x1b[48;2;60;20;20m\x1b[38;2;248;113;113m\x1b[1m ⚠ Error detected \x1b[0m' +
+                '\x1b[38;2;180;140;140m — click the banner below to ask AI for help\x1b[0m\r\n'
+              )
+
+              // Show the clickable error banner overlay
+              if (errorBannerTimerRef.current) clearTimeout(errorBannerTimerRef.current)
+              setErrorBanner({ pattern, timestamp: now })
+              errorBannerTimerRef.current = setTimeout(() => setErrorBanner(null), 12000)
               break
             }
           }
@@ -502,6 +608,29 @@ export function TerminalPanel() {
         <div className="ghost-suggestion">
           <span className="ghost-text">{ghostSuggestion.text}</span>
           <span className="ghost-hint">Tab to accept</span>
+        </div>
+      )}
+
+      {/* Error banner */}
+      {errorBanner && (
+        <div className="error-banner" onClick={handleErrorBannerClick}>
+          <div className="error-banner-content">
+            <AlertTriangle size={14} className="error-banner-icon" />
+            <span className="error-banner-text">
+              Error detected: <strong>{errorBanner.pattern}</strong>
+            </span>
+            <button className="error-banner-action" disabled={errorBannerBusy}>
+              <Zap size={12} />
+              {errorBannerBusy ? 'Asking AI...' : isShellmate ? 'Fix with Shellmate' : assistantMode === 'autopilot' ? 'Auto-fix with AI' : 'Ask AI to explain'}
+            </button>
+          </div>
+          <button
+            className="error-banner-dismiss"
+            onClick={(e) => { e.stopPropagation(); setErrorBanner(null) }}
+            title="Dismiss"
+          >
+            <X size={12} />
+          </button>
         </div>
       )}
 

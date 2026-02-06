@@ -1,150 +1,220 @@
 """
 Gemini 3 Flash AI assistant for Linux mentoring.
+
+This module owns the Gemini client and all AI interactions.
+Conversation state is delegated to ``history.SessionManager``;
+prompt composition is delegated to ``prompts.PromptBuilder``.
+
+Supports multimodal input: text, images, audio, and terminal screenshots
+are all forwarded to the Gemini API as inline content parts.
 """
 
-import os
+from __future__ import annotations
+
+import logging
+
 from google import genai
 
-SYSTEM_PROMPT = """\
-You are **LinuxMentor** — an AI tutor embedded inside a live Linux terminal.
+from .config import config
+from .history import MediaAttachment, SessionManager
+from .prompts import AssistantMode, PromptBuilder, prompt_builder
 
-WHAT YOU CAN SEE:
-• The user's recent terminal history (commands they ran and the output).
-
-HOW TO HELP:
-1. **Explain** — break down commands and output in plain language.
-2. **Fix** — when there's an error, say exactly what went wrong and give the corrected command.
-3. **Teach** — answer "how do I …" questions with practical examples using the terminal context.
-4. **Guide** — for multi-step tasks, give numbered steps the user can follow.
-
-STYLE RULES:
-- Be concise. No fluff.
-- Put commands in `code blocks`.
-- Explain *why* something works, not just *what* to type.
-- Warn about destructive commands (rm -rf, chmod 777, etc.).
-- Use analogies when explaining concepts to beginners.
-- If the user seems experienced, be more terse.
-- Format output as Markdown.
-"""
-
-MODE_ADDENDUMS = {
-    "guided": "",  # Default tutor behavior — no changes
-    "autopilot": """\
-
-AUTOPILOT MODE — CRITICAL RULES:
-The user has enabled autopilot. Any commands you suggest WILL BE EXECUTED AUTOMATICALLY.
-
-- Always put runnable commands inside ```bash code blocks.
-- Each command on its own line. No prose inside code blocks.
-- NEVER include destructive commands (rm -rf /, chmod -R 777 /, mkfs, dd if=/dev/zero, etc.) without explicit user confirmation.
-- Prefer safe, non-destructive, reversible commands.
-- If a task is risky, explain the risk FIRST in prose, then ask the user to confirm before providing the code block.
-- One logical step per response. Don't dump 10 commands at once.
-- After giving a command, briefly explain what it did and what to expect.
-""",
-    "terminal": """\
-
-SHELLMATE MODE — CRITICAL RULES:
-Your response will be printed directly inside the user's terminal with ANSI formatting.
-You must structure your reply so the frontend can parse it into segments.
-
-FORMAT RULES:
-- For explanatory text, just write normal sentences. Keep them short (1-3 sentences per point).
-- For commands the user should run, put each on its own line starting with exactly: CMD: 
-  Example: CMD: ls -la /home
-- For important warnings, start the line with exactly: WARN: 
-  Example: WARN: This will delete files permanently
-- Do NOT use markdown (no **, ##, ```, bullets, etc.)
-- Be terse and practical like a senior engineer pair-programming.
-- Max 10 lines total. Shorter is better.
-- If a task needs multiple commands, list them in order with CMD: prefix.
-
-Example response:
-List txt files in your home directory recursively.
-CMD: find ~ -name "*.txt" -type f
-Add -maxdepth 2 if you want to limit how deep it searches.
-""",
-}
+logger = logging.getLogger(__name__)
 
 
 class AIAssistant:
-    def __init__(self, api_key: str | None = None):
-        key = api_key or os.environ.get("GEMINI_API_KEY", "")
-        self.client = genai.Client(api_key=key)
-        self.model = "gemini-3-flash-preview"
-        self.conversations: dict[str, list] = {}
+    """
+    High-level wrapper around the Gemini generative AI client.
 
-    def _history(self, session_id: str) -> list:
-        if session_id not in self.conversations:
-            self.conversations[session_id] = []
-        return self.conversations[session_id]
+    Responsibilities:
+    - Manage the genai client lifecycle.
+    - Delegate history to ``SessionManager``.
+    - Delegate prompt assembly to ``PromptBuilder``.
+    - Provide domain-specific convenience methods (chat, explain_error, suggest).
+    - Handle multimodal inputs (images, audio) via Gemini's inline_data parts.
+    """
+
+    def __init__(self, builder: PromptBuilder | None = None) -> None:
+        self._client = genai.Client(api_key=config.ai.api_key)
+        self._model = config.ai.model
+        self._sessions = SessionManager()
+        self._builder = builder or prompt_builder
+
+    # ── Core chat ───────────────────────────────────────────────────────
 
     async def chat(
-        self, session_id: str, user_message: str, terminal_context: str = "",
+        self,
+        session_id: str,
+        user_message: str,
+        terminal_context: str = "",
         mode: str = "guided",
+        attachments: list[MediaAttachment] | None = None,
     ) -> str:
-        history = self._history(session_id)
+        """
+        Send a user message and return the model's reply.
 
-        # Build contextual prompt
-        parts: list[str] = []
-        if terminal_context.strip():
-            parts.append(
-                f"<terminal_history>\n{terminal_context}\n</terminal_history>\n\n"
-            )
-        parts.append(user_message)
-        full_prompt = "".join(parts)
+        The conversation history, terminal context, and media attachments
+        are managed automatically.
+        """
+        history = self._sessions.get_or_create(session_id)
 
-        history.append({"role": "user", "parts": [{"text": full_prompt}]})
-
-        # Trim to last 20 turns
-        if len(history) > 20:
-            history[:] = history[-20:]
-
-        # Build mode-aware system prompt
-        system = SYSTEM_PROMPT + MODE_ADDENDUMS.get(mode, "")
-
-        contents = [
-            {"role": "user", "parts": [{"text": system}]},
-            {"role": "model", "parts": [{"text": "Understood. I'm LinuxMentor, ready to help you learn Linux. What would you like to know?"}]},
-            *history,
-        ]
-
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=contents,
+        # Record user turn (with any media attachments)
+        history.add_user_message(
+            text=user_message,
+            terminal_context=terminal_context,
+            mode=mode,
+            attachments=attachments,
         )
 
-        reply = response.text or "I couldn't generate a response. Please try again."
-        history.append({"role": "model", "parts": [{"text": reply}]})
-        return reply
+        # Build full prompt payload
+        contents = self._builder.build(history, mode=mode)
+
+        media_summary = ""
+        if attachments:
+            types = [a.label or a.mime_type for a in attachments]
+            media_summary = f", media=[{', '.join(types)}]"
+
+        logger.debug(
+            "Session %s: sending %d content blocks (mode=%s%s)",
+            session_id,
+            len(contents),
+            mode,
+            media_summary,
+        )
+
+        reply_text = await self._generate(contents)
+
+        # Record model turn
+        history.add_model_message(reply_text)
+
+        return reply_text
+
+    # ── Multimodal one-shot helpers ─────────────────────────────────────
+
+    async def analyze_image(
+        self,
+        image_data: str,
+        mime_type: str,
+        prompt: str = "",
+        terminal_context: str = "",
+    ) -> str:
+        """One-shot image analysis — no session history needed."""
+        text_prompt = prompt or "Describe what you see in this image."
+        if terminal_context:
+            text_prompt = (
+                f"<terminal_history>\n{terminal_context}\n</terminal_history>\n\n"
+                + text_prompt
+            )
+
+        system_text = self._builder.get_system_prompt(AssistantMode.GUIDED)
+        contents = [
+            {"role": "user", "parts": [{"text": system_text}]},
+            {"role": "model", "parts": [{"text": "Ready to help."}]},
+            {
+                "role": "user",
+                "parts": [
+                    {"inline_data": {"mime_type": mime_type, "data": image_data}},
+                    {"text": text_prompt},
+                ],
+            },
+        ]
+        return await self._generate(contents)
+
+    async def transcribe_and_respond(
+        self,
+        audio_data: str,
+        mime_type: str,
+        terminal_context: str = "",
+    ) -> str:
+        """One-shot audio → transcription + response (no session history)."""
+        text_prompt = (
+            "The user sent a voice message. Listen to it carefully, then:\n"
+            "1. Briefly note what they asked (do NOT write a full transcription).\n"
+            "2. Answer their question or follow their instruction.\n"
+        )
+        if terminal_context:
+            text_prompt = (
+                f"<terminal_history>\n{terminal_context}\n</terminal_history>\n\n"
+                + text_prompt
+            )
+
+        system_text = self._builder.get_system_prompt(AssistantMode.GUIDED)
+        contents = [
+            {"role": "user", "parts": [{"text": system_text}]},
+            {"role": "model", "parts": [{"text": "Ready to help."}]},
+            {
+                "role": "user",
+                "parts": [
+                    {"inline_data": {"mime_type": mime_type, "data": audio_data}},
+                    {"text": text_prompt},
+                ],
+            },
+        ]
+        return await self._generate(contents)
+
+    # ── Stateless helpers ───────────────────────────────────────────────
 
     async def explain_error(self, terminal_context: str) -> str:
+        """One-shot error analysis — no session history needed."""
         prompt = (
             "Analyze the terminal output below. Identify any errors, explain what "
             "went wrong in simple terms, and give the corrected command.\n\n"
             f"<terminal_output>\n{terminal_context}\n</terminal_output>"
         )
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=[
-                {"role": "user", "parts": [{"text": SYSTEM_PROMPT}]},
-                {"role": "model", "parts": [{"text": "Ready to help."}]},
-                {"role": "user", "parts": [{"text": prompt}]},
-            ],
-        )
-        return response.text or "Could not analyze the error."
+        return await self._one_shot(prompt)
 
     async def suggest_command(self, task_description: str) -> str:
+        """One-shot command suggestion — no session history needed."""
         prompt = (
             f"The user wants to: {task_description}\n\n"
             "Give the exact Linux command(s) to accomplish this, with a brief explanation."
         )
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=[
-                {"role": "user", "parts": [{"text": SYSTEM_PROMPT}]},
-                {"role": "model", "parts": [{"text": "Ready to help."}]},
-                {"role": "user", "parts": [{"text": prompt}]},
-            ],
-        )
-        return response.text or "Could not generate a suggestion."
+        return await self._one_shot(prompt)
+
+    # ── Session management ──────────────────────────────────────────────
+
+    def clear_session(self, session_id: str) -> None:
+        """Reset conversation history for a session."""
+        history = self._sessions.get_or_create(session_id)
+        history.clear()
+
+    def remove_session(self, session_id: str) -> None:
+        """Fully remove a session from memory."""
+        self._sessions.remove(session_id)
+
+    def get_session_stats(self, session_id: str) -> dict:
+        """Return diagnostic info about a session."""
+        history = self._sessions.get_or_create(session_id)
+        return history.get_stats()
+
+    def list_sessions(self) -> list[dict]:
+        """List all active sessions."""
+        return self._sessions.list_sessions()
+
+    # ── Private helpers ─────────────────────────────────────────────────
+
+    async def _generate(self, contents: list[dict]) -> str:
+        """Call Gemini and return the text, with error handling."""
+        try:
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=contents,
+            )
+            text = response.text
+            if not text:
+                logger.warning("Gemini returned empty response")
+                return "I couldn't generate a response. Please try again."
+            return text
+        except Exception:
+            logger.exception("Gemini API call failed")
+            raise
+
+    async def _one_shot(self, prompt: str) -> str:
+        """Send a single prompt with the base system context (no history)."""
+        system_text = self._builder.get_system_prompt(AssistantMode.GUIDED)
+        contents = [
+            {"role": "user", "parts": [{"text": system_text}]},
+            {"role": "model", "parts": [{"text": "Ready to help."}]},
+            {"role": "user", "parts": [{"text": prompt}]},
+        ]
+        return await self._generate(contents)

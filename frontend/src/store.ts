@@ -48,6 +48,15 @@ export interface GhostSuggestion {
   confidence: number
 }
 
+export interface Attachment {
+  id: string
+  file: File
+  type: 'image' | 'audio'
+  preview?: string // data URL for image preview
+  duration?: number // seconds for audio
+  name: string
+}
+
 interface AppState {
   // Theme
   theme: Theme
@@ -84,6 +93,16 @@ interface AppState {
   toggleChat: () => void
   isAiThinking: boolean
   setAiThinking: (v: boolean) => void
+
+  // Multimodal
+  attachments: Attachment[]
+  addAttachment: (a: Attachment) => void
+  removeAttachment: (id: string) => void
+  clearAttachments: () => void
+  isRecording: boolean
+  setRecording: (v: boolean) => void
+  recordingDuration: number
+  setRecordingDuration: (n: number) => void
 
   // Command palette
   isPaletteOpen: boolean
@@ -172,6 +191,18 @@ export const useStore = create<AppState>((set, get) => ({
   toggleChat: () => set((s) => ({ isChatOpen: !s.isChatOpen })),
   isAiThinking: false,
   setAiThinking: (isAiThinking) => set({ isAiThinking }),
+
+  // ── Multimodal ─────────────────────────────────────────────────────────
+  attachments: [],
+  addAttachment: (a) =>
+    set((s) => ({ attachments: [...s.attachments, a] })),
+  removeAttachment: (id) =>
+    set((s) => ({ attachments: s.attachments.filter((a) => a.id !== id) })),
+  clearAttachments: () => set({ attachments: [] }),
+  isRecording: false,
+  setRecording: (isRecording) => set({ isRecording }),
+  recordingDuration: 0,
+  setRecordingDuration: (recordingDuration) => set({ recordingDuration }),
 
   // ── Command palette ────────────────────────────────────────────────────
   isPaletteOpen: false,

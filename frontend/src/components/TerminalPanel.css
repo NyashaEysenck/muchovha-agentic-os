@@ -167,6 +167,126 @@
   font-weight: 500;
 }
 
+/* ── Error Banner ─────────────────────────────────────────────────────── */
+.error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: linear-gradient(90deg,
+    rgba(248, 113, 113, 0.12),
+    rgba(248, 113, 113, 0.06)
+  );
+  border-top: 1px solid rgba(248, 113, 113, 0.25);
+  border-bottom: 1px solid rgba(248, 113, 113, 0.25);
+  cursor: pointer;
+  flex-shrink: 0;
+  animation: errorBannerSlide 0.25s ease;
+  transition: background var(--transition-fast);
+  z-index: 4;
+}
+.error-banner:hover {
+  background: linear-gradient(90deg,
+    rgba(248, 113, 113, 0.18),
+    rgba(248, 113, 113, 0.10)
+  );
+}
+
+.error-banner-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  flex: 1;
+}
+
+.error-banner-icon {
+  color: #f87171;
+  flex-shrink: 0;
+  animation: errorPulse 2s ease-in-out infinite;
+}
+
+.error-banner-text {
+  font-size: var(--font-size-xs);
+  color: #fca5a5;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.error-banner-text strong {
+  color: #f87171;
+  font-weight: 700;
+}
+
+.error-banner-action {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  background: rgba(248, 113, 113, 0.15);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: var(--radius-full);
+  color: #fca5a5;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+.error-banner-action:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.25);
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.5);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(248, 113, 113, 0.2);
+}
+.error-banner-action:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.error-banner-dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  border: none;
+  color: rgba(252, 165, 165, 0.5);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+.error-banner-dismiss:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.15);
+}
+
+@keyframes errorBannerSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 50px;
+  }
+}
+
+@keyframes errorPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 /* ── Terminal Container ────────────────────────────────────────────────── */
 .terminal-xterm {
   flex: 1;
