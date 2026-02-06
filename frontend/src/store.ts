@@ -6,6 +6,7 @@ import { create } from 'zustand'
 
 export type Theme = 'dark' | 'light'
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
+export type AssistantMode = 'guided' | 'autopilot' | 'terminal'
 
 export interface TerminalEvent {
   id: string
@@ -52,6 +53,10 @@ interface AppState {
   theme: Theme
   toggleTheme: () => void
 
+  // Assistant mode
+  assistantMode: AssistantMode
+  setAssistantMode: (m: AssistantMode) => void
+
   // Connection
   connectionStatus: ConnectionStatus
   setConnectionStatus: (s: ConnectionStatus) => void
@@ -88,6 +93,12 @@ interface AppState {
   isSearchOpen: boolean
   toggleSearch: () => void
 
+  // Shellmate in-terminal
+  shellmateInput: string
+  setShellmateInput: (s: string) => void
+  isShellmateThinking: boolean
+  setShellmateThinking: (v: boolean) => void
+
   // Toasts
   toasts: Toast[]
   addToast: (t: Omit<Toast, 'id'>) => void
@@ -105,6 +116,10 @@ export const useStore = create<AppState>((set, get) => ({
     document.documentElement.setAttribute('data-theme', next)
     set({ theme: next })
   },
+
+  // ── Assistant Mode ─────────────────────────────────────────────────────
+  assistantMode: 'guided',
+  setAssistantMode: (assistantMode) => set({ assistantMode }),
 
   // ── Connection ─────────────────────────────────────────────────────────
   connectionStatus: 'connecting',
@@ -165,6 +180,12 @@ export const useStore = create<AppState>((set, get) => ({
   // ── Search ─────────────────────────────────────────────────────────────
   isSearchOpen: false,
   toggleSearch: () => set((s) => ({ isSearchOpen: !s.isSearchOpen })),
+
+  // ── Shellmate ──────────────────────────────────────────────────────────
+  shellmateInput: '',
+  setShellmateInput: (shellmateInput) => set({ shellmateInput }),
+  isShellmateThinking: false,
+  setShellmateThinking: (isShellmateThinking) => set({ isShellmateThinking }),
 
   // ── Toasts ─────────────────────────────────────────────────────────────
   toasts: [],

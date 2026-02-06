@@ -190,3 +190,139 @@
   background: var(--border-default);
   border-radius: var(--radius-full);
 }
+
+/* ── Shellmate Toolbar State ──────────────────────────────────────────── */
+.terminal-toolbar.shellmate-active {
+  background: linear-gradient(90deg, var(--surface-2), color-mix(in srgb, var(--accent) 8%, var(--surface-2)));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-muted));
+}
+
+.shellmate-icon {
+  color: var(--accent) !important;
+  animation: shellmate-pulse 2s ease-in-out infinite;
+}
+
+.shellmate-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent) !important;
+  color: var(--accent) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.shellmate-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #34d399;
+  animation: shellmate-dot-blink 1.5s ease-in-out infinite;
+}
+
+@keyframes shellmate-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes shellmate-dot-blink {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px #34d399; }
+  50% { opacity: 0.5; box-shadow: none; }
+}
+
+/* ── Shellmate Input Bar ──────────────────────────────────────────────── */
+.shellmate-input-bar {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+  border-top: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-muted));
+  animation: slideUp 0.2s ease;
+}
+
+.shellmate-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--surface-1);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-default));
+  border-radius: var(--radius-m);
+  padding: var(--space-2) var(--space-3);
+  transition: all var(--transition-fast);
+}
+
+.shellmate-input-wrapper:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent),
+              0 0 20px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.shellmate-input-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+  animation: shellmate-pulse 2s ease-in-out infinite;
+}
+
+.shellmate-input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.shellmate-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.shellmate-input:disabled {
+  opacity: 0.5;
+}
+
+.shellmate-send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-s);
+  border: none;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.shellmate-send-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: scale(1.05);
+}
+
+.shellmate-send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.shellmate-input-hint {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  margin-top: var(--space-1);
+  padding-left: var(--space-2);
+}
+
+/* ── Spin animation for loader ────────────────────────────────────────── */
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}

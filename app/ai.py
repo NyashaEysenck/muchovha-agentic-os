@@ -27,6 +27,45 @@ STYLE RULES:
 - Format output as Markdown.
 """
 
+MODE_ADDENDUMS = {
+    "guided": "",  # Default tutor behavior — no changes
+    "autopilot": """\
+
+AUTOPILOT MODE — CRITICAL RULES:
+The user has enabled autopilot. Any commands you suggest WILL BE EXECUTED AUTOMATICALLY.
+
+- Always put runnable commands inside ```bash code blocks.
+- Each command on its own line. No prose inside code blocks.
+- NEVER include destructive commands (rm -rf /, chmod -R 777 /, mkfs, dd if=/dev/zero, etc.) without explicit user confirmation.
+- Prefer safe, non-destructive, reversible commands.
+- If a task is risky, explain the risk FIRST in prose, then ask the user to confirm before providing the code block.
+- One logical step per response. Don't dump 10 commands at once.
+- After giving a command, briefly explain what it did and what to expect.
+""",
+    "terminal": """\
+
+SHELLMATE MODE — CRITICAL RULES:
+Your response will be printed directly inside the user's terminal with ANSI formatting.
+You must structure your reply so the frontend can parse it into segments.
+
+FORMAT RULES:
+- For explanatory text, just write normal sentences. Keep them short (1-3 sentences per point).
+- For commands the user should run, put each on its own line starting with exactly: CMD: 
+  Example: CMD: ls -la /home
+- For important warnings, start the line with exactly: WARN: 
+  Example: WARN: This will delete files permanently
+- Do NOT use markdown (no **, ##, ```, bullets, etc.)
+- Be terse and practical like a senior engineer pair-programming.
+- Max 10 lines total. Shorter is better.
+- If a task needs multiple commands, list them in order with CMD: prefix.
+
+Example response:
+List txt files in your home directory recursively.
+CMD: find ~ -name "*.txt" -type f
+Add -maxdepth 2 if you want to limit how deep it searches.
+""",
+}
+
 
 class AIAssistant:
     def __init__(self, api_key: str | None = None):
@@ -41,7 +80,8 @@ class AIAssistant:
         return self.conversations[session_id]
 
     async def chat(
-        self, session_id: str, user_message: str, terminal_context: str = ""
+        self, session_id: str, user_message: str, terminal_context: str = "",
+        mode: str = "guided",
     ) -> str:
         history = self._history(session_id)
 
@@ -60,8 +100,11 @@ class AIAssistant:
         if len(history) > 20:
             history[:] = history[-20:]
 
+        # Build mode-aware system prompt
+        system = SYSTEM_PROMPT + MODE_ADDENDUMS.get(mode, "")
+
         contents = [
-            {"role": "user", "parts": [{"text": SYSTEM_PROMPT}]},
+            {"role": "user", "parts": [{"text": system}]},
             {"role": "model", "parts": [{"text": "Understood. I'm LinuxMentor, ready to help you learn Linux. What would you like to know?"}]},
             *history,
         ]

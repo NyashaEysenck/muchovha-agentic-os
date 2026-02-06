@@ -9,6 +9,7 @@ export function ChatPanel() {
   const addMessage = useStore((s) => s.addChatMessage)
   const updateMessage = useStore((s) => s.updateChatMessage)
   const sessionId = useStore((s) => s.sessionId)
+  const assistantMode = useStore((s) => s.assistantMode)
   const isThinking = useStore((s) => s.isAiThinking)
   const setThinking = useStore((s) => s.setAiThinking)
   const addToast = useStore((s) => s.addToast)
@@ -31,6 +32,51 @@ export function ChatPanel() {
   }, [input])
 
   const getContext = () => (window as any).__getTerminalContext?.() || ''
+
+  const extractCommands = (text: string): string[] => {
+    const blocks = [...text.matchAll(/```(?:bash|sh|shell)?\n([\s\S]*?)```/g)]
+    const cmds: string[] = []
+    for (const match of blocks) {
+      const body = (match[1] || '').trim()
+      if (!body) continue
+      const lines = body.split('\n').map((l) => l.replace(/^\$\s?/, '').trim())
+      for (const line of lines) {
+        if (!line) continue
+        // Skip obvious non-commands
+        if (line.startsWith('#') || line.startsWith('//')) continue
+        cmds.push(line)
+      }
+    }
+    return cmds
+  }
+
+  const runCommands = (commands: string[]) => {
+    const runInTerminal = (window as any).__runInTerminal
+    if (!runInTerminal || commands.length === 0) return
+    commands.forEach((cmd, idx) => {
+      setTimeout(() => runInTerminal(cmd), idx * 200)
+    })
+  }
+
+  const echoAiToTerminal = (text: string) => {
+    const runInTerminal = (window as any).__runInTerminal
+    if (!runInTerminal) return
+    const lines = text.split('\n').slice(0, 30)
+    const escaped = lines.map((l) => `AI> ${l}`.replace(/\\/g, '\\\\').replace(/'/g, "'\\''"))
+    const cmd = `printf '%s\\n' '${escaped.join("' '")}'`
+    runInTerminal(cmd)
+  }
+
+  const postProcessAiResponse = (text: string) => {
+    if (assistantMode === 'autopilot') {
+      const commands = extractCommands(text)
+      if (commands.length) {
+        addToast({ type: 'info', message: `Autopilot running ${commands.length} command(s)` })
+        runCommands(commands)
+      }
+    }
+    // Shellmate mode is handled entirely in TerminalPanel — no chat panel processing needed
+  }
 
   const send = useCallback(async (overrideMsg?: string) => {
     const msg = overrideMsg || input.trim()
@@ -63,6 +109,7 @@ export function ChatPanel() {
           message: msg,
           terminal_context: getContext(),
           session_id: sessionId,
+          mode: assistantMode,
         }),
       })
       const data = await res.json()
@@ -77,6 +124,7 @@ export function ChatPanel() {
           i += chunkSize
           if (i >= fullText.length) {
             updateMessage(aiId, { text: fullText, streaming: false })
+            postProcessAiResponse(fullText)
             clearInterval(interval)
           } else {
             updateMessage(aiId, { text: fullText.slice(0, i) })
@@ -91,7 +139,7 @@ export function ChatPanel() {
     } finally {
       setThinking(false)
     }
-  }, [input, isThinking, sessionId, addMessage, updateMessage, setThinking])
+  }, [input, isThinking, sessionId, addMessage, updateMessage, setThinking, assistantMode, addToast])
 
   const quickActions = [
     { icon: <Lightbulb size={12} />, label: 'Explain output', msg: 'Explain what just happened in my terminal' },
@@ -173,7 +221,13 @@ export function ChatPanel() {
             ref={inputRef}
             className="chat-input"
             rows={1}
-            placeholder="Ask about Linux..."
+            placeholder={
+              assistantMode === 'autopilot'
+                ? 'Autopilot mode: ask and it may run commands'
+                : assistantMode === 'terminal'
+                ? 'Shellmate mode: AI replies in terminal'
+                : 'Ask about Linux...'
+            }
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -194,7 +248,9 @@ export function ChatPanel() {
           </button>
         </div>
         <div className="chat-input-hint">
-          Shift+Enter for new line
+          {assistantMode === 'guided' && 'Shift+Enter for new line'}
+          {assistantMode === 'autopilot' && 'Autopilot may execute commands from AI responses'}
+          {assistantMode === 'terminal' && 'AI replies will appear inside the terminal'}
         </div>
       </div>
     </div>

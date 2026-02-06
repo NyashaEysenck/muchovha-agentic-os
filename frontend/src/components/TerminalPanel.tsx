@@ -1,11 +1,11 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { useStore } from '../store'
-import { Search, ChevronUp, ChevronDown, X, Minus, Plus, TerminalSquare } from 'lucide-react'
+import { Search, ChevronUp, ChevronDown, X, Minus, Plus, TerminalSquare, Sparkles, Send, Loader2 } from 'lucide-react'
 import './TerminalPanel.css'
 
 const ERROR_PATTERNS = [
@@ -26,12 +26,197 @@ export function TerminalPanel() {
   const ligaturesEnabled = useStore((s) => s.ligaturesEnabled)
   const setConnectionStatus = useStore((s) => s.setConnectionStatus)
   const setSessionId = useStore((s) => s.setSessionId)
+  const sessionId = useStore((s) => s.sessionId)
   const addToast = useStore((s) => s.addToast)
   const isSearchOpen = useStore((s) => s.isSearchOpen)
   const toggleSearch = useStore((s) => s.toggleSearch)
   const ghostSuggestion = useStore((s) => s.ghostSuggestion)
+  const assistantMode = useStore((s) => s.assistantMode)
+  const isShellmateThinking = useStore((s) => s.isShellmateThinking)
+  const setShellmateThinking = useStore((s) => s.setShellmateThinking)
 
+  const [shellInput, setShellInput] = useState('')
+  const shellInputRef = useRef<HTMLInputElement>(null)
   const lastErrorRef = useRef(0)
+
+  const isShellmate = assistantMode === 'terminal'
+
+  // ── ANSI helpers for styled terminal output ───────────────────────────
+  const ANSI = {
+    reset:     '\x1b[0m',
+    bold:      '\x1b[1m',
+    dim:       '\x1b[2m',
+    italic:    '\x1b[3m',
+    // Foregrounds
+    cyan:      '\x1b[36m',
+    green:     '\x1b[32m',
+    yellow:    '\x1b[33m',
+    red:       '\x1b[31m',
+    magenta:   '\x1b[35m',
+    blue:      '\x1b[34m',
+    white:     '\x1b[37m',
+    gray:      '\x1b[90m',
+    brightCyan:    '\x1b[96m',
+    brightGreen:   '\x1b[92m',
+    brightYellow:  '\x1b[93m',
+    brightMagenta: '\x1b[95m',
+    brightWhite:   '\x1b[97m',
+    // Backgrounds
+    bgBlue:    '\x1b[44m',
+    bgMagenta: '\x1b[45m',
+    bgGray:    '\x1b[100m',
+  }
+
+  const writeLine = (text: string) => {
+    termRef.current?.write(text + '\r\n')
+  }
+
+  const writeShellmateDivider = () => {
+    const cols = termRef.current?.cols || 80
+    const line = '─'.repeat(cols - 2)
+    writeLine(`${ANSI.dim}${ANSI.cyan}${line}${ANSI.reset}`)
+  }
+
+  const writeUserPrompt = (prompt: string) => {
+    writeLine('')
+    writeShellmateDivider()
+    writeLine(`${ANSI.bold}${ANSI.brightCyan} 🧑 YOU ${ANSI.reset}${ANSI.dim}${ANSI.cyan} ▸ ${ANSI.reset}${ANSI.white}${prompt}${ANSI.reset}`)
+    writeShellmateDivider()
+  }
+
+  const writeAiHeader = () => {
+    writeLine(`${ANSI.bold}${ANSI.brightMagenta} 🤖 SHELLMATE ${ANSI.reset}`)
+  }
+
+  const writeAiText = (text: string) => {
+    writeLine(`${ANSI.white}   ${text}${ANSI.reset}`)
+  }
+
+  const writeAiCommand = (cmd: string) => {
+    writeLine(`${ANSI.bold}${ANSI.brightGreen}   ▶ ${ANSI.reset}${ANSI.bold}${ANSI.green}${cmd}${ANSI.reset}`)
+  }
+
+  const writeAiWarning = (text: string) => {
+    writeLine(`${ANSI.bold}${ANSI.brightYellow}   ⚠ ${ANSI.reset}${ANSI.yellow}${text}${ANSI.reset}`)
+  }
+
+  const writeExecuting = (cmd: string) => {
+    writeLine('')
+    writeLine(`${ANSI.dim}${ANSI.gray}   ┌─ executing ──────────────────────────${ANSI.reset}`)
+    writeLine(`${ANSI.dim}${ANSI.gray}   │ ${ANSI.reset}${ANSI.brightGreen}$ ${cmd}${ANSI.reset}`)
+    writeLine(`${ANSI.dim}${ANSI.gray}   └──────────────────────────────────────${ANSI.reset}`)
+  }
+
+  const writeEndBlock = () => {
+    const cols = termRef.current?.cols || 80
+    const line = '─'.repeat(cols - 2)
+    writeLine(`${ANSI.dim}${ANSI.cyan}${line}${ANSI.reset}`)
+    writeLine('')
+  }
+
+  // ── Shellmate send handler ────────────────────────────────────────────
+  const sendShellmate = useCallback(async (override?: string) => {
+    const msg = override || shellInput.trim()
+    if (!msg || isShellmateThinking) return
+    setShellInput('')
+    setShellmateThinking(true)
+
+    // Write the user's question to the terminal
+    writeUserPrompt(msg)
+
+    // Show thinking indicator
+    writeLine(`${ANSI.dim}${ANSI.magenta}   ⏳ thinking...${ANSI.reset}`)
+
+    try {
+      const context = (window as any).__getTerminalContext?.() || ''
+      const res = await fetch('/api/shellmate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: msg,
+          terminal_context: context,
+          session_id: sessionId,
+        }),
+      })
+      const data = await res.json()
+
+      if (data.error) {
+        // Clear thinking line by overwriting
+        writeLine(`${ANSI.red}   Error: ${data.error}${ANSI.reset}`)
+        writeEndBlock()
+        return
+      }
+
+      // Clear the thinking line (move cursor up and clear)
+      termRef.current?.write('\x1b[1A\x1b[2K')
+
+      // Render AI response header
+      writeAiHeader()
+
+      const segments: Array<{ type: string; text: string }> = data.segments || []
+      const commands: string[] = []
+
+      // Render each segment
+      for (const seg of segments) {
+        switch (seg.type) {
+          case 'text':
+            writeAiText(seg.text)
+            break
+          case 'command':
+            writeAiCommand(seg.text)
+            commands.push(seg.text)
+            break
+          case 'warning':
+            writeAiWarning(seg.text)
+            break
+        }
+      }
+
+      writeLine('')
+
+      // Execute commands sequentially with visual separation
+      if (commands.length > 0) {
+        for (let i = 0; i < commands.length; i++) {
+          const cmd = commands[i]
+          writeExecuting(cmd)
+          // Actually run in the shell
+          const ws = wsRef.current
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(new TextEncoder().encode(cmd + '\n'))
+            // Wait a bit for output before next command
+            await new Promise((r) => setTimeout(r, 800))
+          }
+        }
+      }
+
+      writeEndBlock()
+    } catch (err: any) {
+      writeLine(`${ANSI.red}   Network error: ${err.message}${ANSI.reset}`)
+      writeEndBlock()
+    } finally {
+      setShellmateThinking(false)
+      // Refocus the input after response
+      setTimeout(() => shellInputRef.current?.focus(), 100)
+    }
+  }, [shellInput, isShellmateThinking, sessionId, setShellmateThinking])
+
+  // Focus shellmate input when mode changes
+  useEffect(() => {
+    if (isShellmate) {
+      setTimeout(() => shellInputRef.current?.focus(), 200)
+      // Print welcome banner in terminal
+      const term = termRef.current
+      if (term) {
+        writeLine('')
+        writeShellmateDivider()
+        writeLine(`${ANSI.bold}${ANSI.brightMagenta} 🤖 SHELLMATE MODE ACTIVE ${ANSI.reset}`)
+        writeLine(`${ANSI.dim}   Type below to ask AI anything. Commands auto-execute.${ANSI.reset}`)
+        writeLine(`${ANSI.dim}   Your terminal is still fully functional — click to use it normally.${ANSI.reset}`)
+        writeShellmateDivider()
+        writeLine('')
+      }
+    }
+  }, [isShellmate])
 
   const connectWS = useCallback(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
@@ -235,13 +420,29 @@ export function TerminalPanel() {
   return (
     <div className="terminal-panel">
       {/* Toolbar */}
-      <div className="terminal-toolbar">
+      <div className={`terminal-toolbar ${isShellmate ? 'shellmate-active' : ''}`}>
         <div className="terminal-toolbar-left">
           <span className="toolbar-label">
-            <TerminalSquare size={13} className="toolbar-icon" />
-            Terminal
+            {isShellmate ? (
+              <>
+                <Sparkles size={13} className="toolbar-icon shellmate-icon" />
+                Shellmate
+              </>
+            ) : (
+              <>
+                <TerminalSquare size={13} className="toolbar-icon" />
+                Terminal
+              </>
+            )}
           </span>
-          <span className="toolbar-chip">bash</span>
+          {isShellmate ? (
+            <span className="toolbar-chip shellmate-chip">
+              <span className="shellmate-dot" />
+              AI Interactive
+            </span>
+          ) : (
+            <span className="toolbar-chip">bash</span>
+          )}
         </div>
         <div className="terminal-toolbar-right">
           <button
@@ -306,6 +507,41 @@ export function TerminalPanel() {
 
       {/* Terminal */}
       <div className="terminal-xterm" ref={containerRef} />
+
+      {/* Shellmate input bar */}
+      {isShellmate && (
+        <div className="shellmate-input-bar">
+          <div className="shellmate-input-wrapper">
+            <Sparkles size={14} className="shellmate-input-icon" />
+            <input
+              ref={shellInputRef}
+              type="text"
+              className="shellmate-input"
+              placeholder={isShellmateThinking ? 'AI is thinking...' : 'Ask Shellmate anything... (commands auto-execute)'}
+              value={shellInput}
+              onChange={(e) => setShellInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  sendShellmate()
+                }
+              }}
+              disabled={isShellmateThinking}
+            />
+            <button
+              className="shellmate-send-btn"
+              onClick={() => sendShellmate()}
+              disabled={isShellmateThinking || !shellInput.trim()}
+              title="Send to Shellmate"
+            >
+              {isShellmateThinking ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
+            </button>
+          </div>
+          <div className="shellmate-input-hint">
+            Enter to send · Click terminal to use normally · AI responses render inline
+          </div>
+        </div>
+      )}
     </div>
   )
 }

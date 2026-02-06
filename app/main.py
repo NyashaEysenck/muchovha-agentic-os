@@ -95,6 +95,7 @@ class ChatRequest(BaseModel):
     message: str
     terminal_context: str = ""
     session_id: str = "default"
+    mode: str = "guided"  # guided | autopilot | terminal
 
 
 @app.post("/api/chat")
@@ -104,8 +105,46 @@ async def chat(req: ChatRequest):
             session_id=req.session_id,
             user_message=req.message,
             terminal_context=req.terminal_context,
+            mode=req.mode,
         )
         return JSONResponse({"response": response})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+class ShellmateRequest(BaseModel):
+    message: str
+    terminal_context: str = ""
+    session_id: str = "default"
+
+
+@app.post("/api/shellmate")
+async def shellmate(req: ShellmateRequest):
+    """Shellmate endpoint — returns structured segments for terminal rendering."""
+    try:
+        raw = await ai.chat(
+            session_id=req.session_id,
+            user_message=req.message,
+            terminal_context=req.terminal_context,
+            mode="terminal",
+        )
+        # Parse structured response into segments
+        segments = []
+        for line in raw.split("\n"):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("CMD:"):
+                cmd = stripped[4:].strip()
+                if cmd:
+                    segments.append({"type": "command", "text": cmd})
+            elif stripped.startswith("WARN:"):
+                warn = stripped[5:].strip()
+                if warn:
+                    segments.append({"type": "warning", "text": warn})
+            else:
+                segments.append({"type": "text", "text": stripped})
+        return JSONResponse({"segments": segments, "raw": raw})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

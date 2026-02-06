@@ -11,9 +11,59 @@ import './App.css'
 export function App() {
   const theme = useStore((s) => s.theme)
   const toggleTheme = useStore((s) => s.toggleTheme)
+  const assistantMode = useStore((s) => s.assistantMode)
+  const setAssistantMode = useStore((s) => s.setAssistantMode)
   const isChatOpen = useStore((s) => s.isChatOpen)
   const toggleChat = useStore((s) => s.toggleChat)
   const togglePalette = useStore((s) => s.togglePalette)
+
+  const isShellmate = assistantMode === 'terminal'
+
+  // Auto-close chat panel when entering shellmate mode, restore when leaving
+  const prevModeRef = useRef(assistantMode)
+  const chatWasOpenRef = useRef(isChatOpen)
+  useEffect(() => {
+    if (assistantMode === 'terminal' && prevModeRef.current !== 'terminal') {
+      chatWasOpenRef.current = isChatOpen
+      if (isChatOpen) toggleChat()
+    } else if (assistantMode !== 'terminal' && prevModeRef.current === 'terminal') {
+      if (chatWasOpenRef.current && !isChatOpen) toggleChat()
+    }
+    prevModeRef.current = assistantMode
+  }, [assistantMode])
+
+  const extractCommands = (text: string): string[] => {
+    const blocks = [...text.matchAll(/```(?:bash|sh|shell)?\n([\s\S]*?)```/g)]
+    const cmds: string[] = []
+    for (const match of blocks) {
+      const body = (match[1] || '').trim()
+      if (!body) continue
+      const lines = body.split('\n').map((l) => l.replace(/^\$\s?/, '').trim())
+      for (const line of lines) {
+        if (!line) continue
+        if (line.startsWith('#') || line.startsWith('//')) continue
+        cmds.push(line)
+      }
+    }
+    return cmds
+  }
+
+  const runCommands = (commands: string[]) => {
+    const runInTerminal = (window as any).__runInTerminal
+    if (!runInTerminal || commands.length === 0) return
+    commands.forEach((cmd, idx) => {
+      setTimeout(() => runInTerminal(cmd), idx * 200)
+    })
+  }
+
+  const echoAiToTerminal = (text: string) => {
+    const runInTerminal = (window as any).__runInTerminal
+    if (!runInTerminal) return
+    const lines = text.split('\n').slice(0, 30)
+    const escaped = lines.map((l) => `AI> ${l}`.replace(/\\/g, '\\\\').replace(/'/g, "'\\''"))
+    const cmd = `printf '%s\\n' '${escaped.join("' '")}'`
+    runInTerminal(cmd)
+  }
 
   // ── Resize handle ────────────────────────────────────────────────────
   const [splitPct, setSplitPct] = useState(60)
@@ -80,6 +130,7 @@ export function App() {
           message: msg,
           terminal_context: context,
           session_id: store.sessionId,
+          mode: assistantMode,
         }),
       })
         .then((r) => r.json())
@@ -93,6 +144,14 @@ export function App() {
               i += 8
               if (i >= fullText.length) {
                 store.updateChatMessage(aiId, { text: fullText, streaming: false })
+                if (assistantMode === 'autopilot') {
+                  const commands = extractCommands(fullText)
+                  if (commands.length) {
+                    store.addToast({ type: 'info', message: `Autopilot running ${commands.length} command(s)` })
+                    runCommands(commands)
+                  }
+                }
+                // Shellmate mode is handled in TerminalPanel — no palette action needed
                 clearInterval(interval)
               } else {
                 store.updateChatMessage(aiId, { text: fullText.slice(0, i) })
@@ -107,7 +166,7 @@ export function App() {
     }
     window.addEventListener('palette-action', handler)
     return () => window.removeEventListener('palette-action', handler)
-  }, [])
+  }, [assistantMode])
 
   return (
     <div className="app" data-theme={theme}>
@@ -128,6 +187,30 @@ export function App() {
             <span className="palette-btn-text">Command palette</span>
             <kbd className="palette-btn-kbd">Ctrl+K</kbd>
           </button>
+
+          <div className="mode-switch" role="group" aria-label="Assistant mode">
+            <button
+              className={`mode-chip ${assistantMode === 'guided' ? 'active' : ''}`}
+              onClick={() => setAssistantMode('guided')}
+              title="Guide mode — AI suggests, you run"
+            >
+              Tutor
+            </button>
+            <button
+              className={`mode-chip ${assistantMode === 'autopilot' ? 'active' : ''}`}
+              onClick={() => setAssistantMode('autopilot')}
+              title="Autopilot — AI runs commands it proposes"
+            >
+              Autopilot
+            </button>
+            <button
+              className={`mode-chip ${assistantMode === 'terminal' ? 'active' : ''}`}
+              onClick={() => setAssistantMode('terminal')}
+              title="Shellmate — AI replies inside the terminal"
+            >
+              Shellmate
+            </button>
+          </div>
         </div>
 
         <div className="header-right">
@@ -153,19 +236,19 @@ export function App() {
       <div className="app-main" ref={containerRef}>
         <div
           className="pane pane-terminal"
-          style={{ width: isChatOpen ? `${splitPct}%` : '100%' }}
+          style={{ width: (isChatOpen && !isShellmate) ? `${splitPct}%` : '100%' }}
         >
           <TerminalPanel />
         </div>
 
-        {isChatOpen && (
+        {isChatOpen && !isShellmate && (
           <div
             className={`resize-handle ${draggingRef.current ? 'dragging' : ''}`}
             onMouseDown={onMouseDown}
           />
         )}
 
-        {isChatOpen && (
+        {isChatOpen && !isShellmate && (
           <div
             className="pane pane-chat"
             style={{ width: `${100 - splitPct}%` }}
