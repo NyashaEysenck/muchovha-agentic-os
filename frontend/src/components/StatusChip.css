@@ -1,0 +1,37 @@
+.status-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: var(--surface-3);
+  border: 1px solid var(--border-muted);
+  transition: all var(--transition-normal);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-success {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+.dot-warning {
+  background: var(--warning);
+  animation: pulse 1s infinite;
+}
+.dot-danger {
+  background: var(--danger);
+  animation: pulse 0.8s infinite;
+}
+
+.status-label {
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}

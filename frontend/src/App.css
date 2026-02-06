@@ -1,0 +1,173 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--surface-0);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-4);
+  height: 48px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-muted);
+  z-index: var(--z-header);
+  flex-shrink: 0;
+}
+
+.header-left, .header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.header-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.logo-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-s);
+  background: var(--accent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.logo-text {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.4px;
+}
+
+/* Command palette trigger */
+.header-palette-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-4);
+  background: var(--surface-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-m);
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-width: 260px;
+}
+.header-palette-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-secondary);
+  background: var(--surface-4);
+}
+.palette-btn-icon {
+  opacity: 0.5;
+}
+.palette-btn-text {
+  flex: 1;
+  text-align: left;
+}
+.palette-btn-kbd {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+/* Header icon buttons */
+.header-icon-btn {
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+.header-icon-btn:hover {
+  background: var(--surface-3);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+.header-icon-btn.active {
+  background: var(--accent-muted);
+  border-color: var(--border-accent);
+  color: var(--accent);
+}
+
+/* ── Main Area ─────────────────────────────────────────────────────────── */
+.app-main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.pane {
+  overflow: hidden;
+  transition: width 0.2s ease;
+}
+.pane-terminal {
+  min-width: 300px;
+}
+.pane-chat {
+  min-width: 280px;
+  border-left: 1px solid var(--border-muted);
+  animation: slideInRight 0.2s ease;
+}
+
+/* ── Resize Handle ─────────────────────────────────────────────────────── */
+.resize-handle {
+  width: 3px;
+  background: var(--border-muted);
+  cursor: col-resize;
+  transition: background var(--transition-fast);
+  flex-shrink: 0;
+  position: relative;
+}
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  inset: 0 -4px;
+}
+.resize-handle:hover,
+.resize-handle.dragging {
+  background: var(--accent);
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .header-palette-btn {
+    min-width: auto;
+  }
+  .palette-btn-text,
+  .palette-btn-kbd {
+    display: none;
+  }
+  .pane-chat {
+    position: absolute;
+    right: 0;
+    top: 48px;
+    bottom: 0;
+    width: 100% !important;
+    max-width: 400px;
+    z-index: var(--z-panel);
+    box-shadow: var(--shadow-lg);
+  }
+}

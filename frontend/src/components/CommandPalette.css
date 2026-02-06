@@ -1,0 +1,137 @@
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--surface-overlay);
+  z-index: var(--z-palette);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+  animation: fadeIn 0.1s ease;
+  backdrop-filter: blur(8px);
+}
+
+.palette-container {
+  width: 520px;
+  max-width: 90vw;
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-overlay);
+  overflow: hidden;
+  animation: slideUp 0.15s ease;
+}
+
+/* ── Input ──────────────────────────────────────────────────────────────── */
+.palette-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.palette-input-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.palette-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  font-family: var(--font-sans);
+  outline: none;
+}
+.palette-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* ── List ───────────────────────────────────────────────────────────────── */
+.palette-list {
+  max-height: 340px;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: none;
+  border-radius: var(--radius-m);
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition-fast);
+}
+.palette-item:hover,
+.palette-item.selected {
+  background: var(--surface-3);
+}
+
+.palette-item-icon {
+  width: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+.palette-item.selected .palette-item-icon,
+.palette-item:hover .palette-item-icon {
+  color: var(--accent);
+}
+
+.palette-item-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.palette-item-label {
+  font-weight: 500;
+}
+
+.palette-item-hint {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+}
+
+.palette-empty {
+  text-align: center;
+  padding: var(--space-6);
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+.palette-footer {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border-muted);
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.palette-footer span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.palette-footer kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 4px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  color: var(--text-tertiary);
+}
