@@ -1,17 +1,19 @@
 """
-FastAPI backend — serves the React UI, bridges terminal PTY and Gemini AI.
+AgentOS — FastAPI backend with SSE agent streaming, PTY terminal, and FastMCP.
 
-Route layout:
+Endpoints:
     GET  /                       → React SPA
     WS   /ws/terminal            → PTY WebSocket
-    POST /api/chat               → AI chat (guided / autopilot)
-    POST /api/chat/multimodal    → AI chat with images/audio attachments
-    POST /api/shellmate          → AI chat (terminal / shellmate mode, structured output)
-    POST /api/explain-error      → One-shot error explanation
-    POST /api/suggest            → One-shot command suggestion
+    POST /api/agent/run          → Agent loop (SSE stream)
+    POST /api/upload             → Upload files (images, audio) for agent
+    GET  /api/skills             → List discovered skills
+    POST /api/skills/{name}/activate   → Activate a skill
+    POST /api/skills/{name}/deactivate → Deactivate a skill
+    GET  /api/system/metrics     → System metrics
+    GET  /api/system/processes   → Process list
+    GET  /api/sessions           → Active agent sessions
     GET  /api/health             → Liveness probe
-    GET  /api/sessions           → Diagnostic: list active AI sessions
-    POST /api/sessions/clear     → Clear a session's history
+    /mcp                         → FastMCP server (MCP protocol)
 """
 
 from __future__ import annotations
@@ -24,41 +26,43 @@ import os
 import uuid
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from .ai import AIAssistant
+from .agent.loop import AgentLoop, Attachment
+from .agent.tools import ToolRegistry, create_builtin_tools
+from .agent.skills import SkillEngine
 from .config import config
-from .history import MediaAttachment
 from .terminal import TerminalManager
 
 load_dotenv()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="LinuxMentor — AI-Powered Linux Learning")
+# ── Initialize core components ───────────────────────────────────────────
+
+tools = ToolRegistry()
+for tool in create_builtin_tools():
+    tools.register(tool)
+
+skills = SkillEngine()
+agent = AgentLoop(tools, skills)
 terminal_mgr = TerminalManager()
-ai = AIAssistant()
 
+# In-memory attachment store (attachment_id → Attachment)
+_uploads: dict[str, Attachment] = {}
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Static UI (built React app)
-# ═══════════════════════════════════════════════════════════════════════════
+# ── FastAPI app ──────────────────────────────────────────────────────────
 
+app = FastAPI(title="AgentOS")
+
+# Static frontend
 STATIC_DIR = config.server.static_dir
-
 if os.path.isdir(os.path.join(STATIC_DIR, "assets")):
-    app.mount(
-        "/assets",
-        StaticFiles(directory=os.path.join(STATIC_DIR, "assets")),
-        name="assets",
-    )
+    app.mount("/assets", StaticFiles(directory=os.path.join(STATIC_DIR, "assets")), name="assets")
 
 
 @app.get("/")
@@ -66,9 +70,18 @@ async def index():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Terminal WebSocket
-# ═══════════════════════════════════════════════════════════════════════════
+# ── FastMCP mount ────────────────────────────────────────────────────────
+
+try:
+    from .mcp.server import mcp as mcp_server
+    mcp_app = mcp_server.http_app(path="/")
+    app.mount("/mcp", mcp_app)
+    logger.info("FastMCP server mounted at /mcp")
+except Exception:
+    logger.warning("Failed to mount FastMCP server", exc_info=True)
+
+
+# ── Terminal WebSocket ───────────────────────────────────────────────────
 
 
 @app.websocket("/ws/terminal")
@@ -76,11 +89,9 @@ async def terminal_ws(websocket: WebSocket):
     await websocket.accept()
     session_id = str(uuid.uuid4())
     terminal_mgr.create_session(session_id)
-
     await websocket.send_text(json.dumps({"type": "session", "id": session_id}))
 
     async def pty_reader():
-        """Continuously read PTY output and push to browser."""
         while True:
             await asyncio.sleep(config.server.pty_poll_interval)
             if not terminal_mgr.is_alive(session_id):
@@ -93,265 +104,188 @@ async def terminal_ws(websocket: WebSocket):
                     break
 
     reader_task = asyncio.create_task(pty_reader())
-
     try:
         while True:
             msg = await websocket.receive()
             if "bytes" in msg:
                 terminal_mgr.write(session_id, msg["bytes"])
             elif "text" in msg:
-                payload = json.loads(msg["text"])
-                msg_type = payload.get("type")
-                if msg_type == "resize":
-                    terminal_mgr.resize(session_id, payload["cols"], payload["rows"])
-                elif msg_type == "get_history":
+                try:
+                    payload = json.loads(msg["text"])
+                except json.JSONDecodeError:
+                    continue
+                if payload.get("type") == "resize":
+                    terminal_mgr.resize(session_id, payload.get("cols", 80), payload.get("rows", 24))
+                elif payload.get("type") == "get_history":
                     history = terminal_mgr.get_history(session_id)
-                    await websocket.send_text(
-                        json.dumps({"type": "history", "data": history})
-                    )
+                    await websocket.send_text(json.dumps({"type": "history", "data": history}))
     except WebSocketDisconnect:
-        logger.info("WebSocket disconnected: %s", session_id)
+        pass
     except Exception:
         logger.exception("WebSocket error: %s", session_id)
     finally:
         reader_task.cancel()
         terminal_mgr.close_session(session_id)
-        ai.remove_session(session_id)
+        agent.remove_session(session_id)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Request / response schemas
-# ═══════════════════════════════════════════════════════════════════════════
+# ── File upload endpoint ─────────────────────────────────────────────────
+
+ALLOWED_MIME_PREFIXES = ("image/", "audio/")
 
 
-class ChatRequest(BaseModel):
-    """Payload for the main chat and shellmate endpoints."""
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """Upload an image or audio file for the agent. Returns an attachment ID."""
+    content_type = file.content_type or ""
+    if not any(content_type.startswith(p) for p in ALLOWED_MIME_PREFIXES):
+        return JSONResponse(
+            {"error": f"Unsupported file type: {content_type}. Only images and audio are accepted."},
+            status_code=400,
+        )
 
-    message: str
-    terminal_context: str = ""
+    data = await file.read()
+    if len(data) > config.server.max_upload_bytes:
+        return JSONResponse(
+            {"error": f"File too large ({len(data)} bytes). Max is {config.server.max_upload_bytes} bytes."},
+            status_code=413,
+        )
+
+    attachment_id = str(uuid.uuid4())
+    _uploads[attachment_id] = Attachment(
+        mime_type=content_type,
+        data=data,
+        name=file.filename or "upload",
+    )
+
+    logger.info("Uploaded %s (%s, %d bytes) → %s", file.filename, content_type, len(data), attachment_id)
+
+    return JSONResponse({
+        "id": attachment_id,
+        "name": file.filename,
+        "mime_type": content_type,
+        "size": len(data),
+    })
+
+
+# ── Agent endpoint (SSE) ────────────────────────────────────────────────
+
+
+class AgentRequest(BaseModel):
+    goal: str
     session_id: str = "default"
-    mode: str = Field(default="guided", pattern="^(guided|autopilot|terminal)$")
+    attachment_ids: list[str] = []
 
 
-class SuggestRequest(BaseModel):
-    """Payload for one-shot command suggestion."""
+@app.post("/api/agent/run")
+async def agent_run(req: AgentRequest):
+    """Run the agent loop and stream events via SSE."""
 
-    task: str
+    # Resolve attachments from the upload store
+    attachments: list[Attachment] = []
+    for aid in req.attachment_ids:
+        att = _uploads.pop(aid, None)  # consume on use
+        if att:
+            attachments.append(att)
+
+    async def event_stream():
+        async for event in agent.run(req.goal, req.session_id, attachments=attachments or None):
+            yield event.to_sse()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
-class SessionActionRequest(BaseModel):
-    """Payload for session management actions."""
-
-    session_id: str
+# ── Skills endpoints ────────────────────────────────────────────────────
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# AI Chat endpoints
-# ═══════════════════════════════════════════════════════════════════════════
+@app.get("/api/skills")
+async def list_skills():
+    return JSONResponse({
+        "skills": [
+            {
+                "name": s.name,
+                "description": s.description,
+                "path": str(s.path),
+                "active": skills.is_active(s.name),
+            }
+            for s in skills.list_skills()
+        ]
+    })
 
 
-@app.post("/api/chat")
-async def chat(req: ChatRequest):
+@app.post("/api/skills/{name}/activate")
+async def activate_skill(name: str):
+    ctx = skills.activate(name)
+    if not ctx:
+        return JSONResponse({"error": f"Skill '{name}' not found"}, status_code=404)
+    return JSONResponse({
+        "name": ctx.meta.name,
+        "active": True,
+        "scripts": ctx.scripts,
+        "references": ctx.references,
+    })
+
+
+@app.post("/api/skills/{name}/deactivate")
+async def deactivate_skill(name: str):
+    skills.deactivate(name)
+    return JSONResponse({"name": name, "active": False})
+
+
+# ── System endpoints ────────────────────────────────────────────────────
+
+
+@app.get("/api/system/metrics")
+async def system_metrics():
     try:
-        response = await ai.chat(
-            session_id=req.session_id,
-            user_message=req.message,
-            terminal_context=req.terminal_context,
-            mode=req.mode,
-        )
-        return JSONResponse({"response": response})
-    except Exception as e:
-        logger.exception("Chat error (session=%s)", req.session_id)
-        return JSONResponse({"error": str(e)}, status_code=500)
+        import agent_kernel  # type: ignore
+        cpu = agent_kernel.SystemMetrics.cpu()
+        mem = agent_kernel.SystemMetrics.memory()
+        disk = agent_kernel.SystemMetrics.disk("/")
+        return JSONResponse({
+            "cpu": {"usage_percent": round(cpu.usage_percent, 1), "cores": cpu.core_count,
+                    "load": [round(cpu.load_1m, 2), round(cpu.load_5m, 2), round(cpu.load_15m, 2)]},
+            "memory": {"total_mb": mem.total_kb // 1024, "used_mb": mem.used_kb // 1024,
+                       "available_mb": mem.available_kb // 1024, "usage_percent": round(mem.usage_percent, 1)},
+            "disk": {"total_gb": round(disk.total_bytes / 1e9, 1), "used_gb": round(disk.used_bytes / 1e9, 1),
+                     "available_gb": round(disk.available_bytes / 1e9, 1), "usage_percent": round(disk.usage_percent, 1)},
+        })
+    except ImportError:
+        return JSONResponse({"error": "C++ kernel not available"}, status_code=503)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Multimodal chat (images, audio, screenshots)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-@app.post("/api/chat/multimodal")
-async def chat_multimodal(
-    message: str = Form(default=""),
-    terminal_context: str = Form(default=""),
-    session_id: str = Form(default="default"),
-    mode: str = Form(default="guided"),
-    files: list[UploadFile] = File(default=[]),
-):
-    """
-    Multimodal chat endpoint — accepts text + file uploads (images, audio).
-
-    Files are read into memory, base64-encoded, and sent to Gemini as
-    inline_data parts alongside the user's text message.
-    """
+@app.get("/api/system/processes")
+async def system_processes():
     try:
-        mm_config = config.multimodal
-        attachments: list[MediaAttachment] = []
-
-        for upload in files:
-            content_type = upload.content_type or "application/octet-stream"
-
-            # Validate MIME type
-            if content_type not in mm_config.all_supported_types:
-                return JSONResponse(
-                    {"error": f"Unsupported file type: {content_type}. "
-                     f"Supported: {', '.join(mm_config.all_supported_types)}"},
-                    status_code=400,
-                )
-
-            # Read and check size
-            data = await upload.read()
-            is_image = content_type.startswith("image/")
-            max_bytes = mm_config.max_image_bytes if is_image else mm_config.max_audio_bytes
-            max_label = f"{mm_config.max_image_size_mb}MB" if is_image else f"{mm_config.max_audio_size_mb}MB"
-
-            if len(data) > max_bytes:
-                return JSONResponse(
-                    {"error": f"File too large ({len(data) / 1024 / 1024:.1f}MB). "
-                     f"Maximum for {'images' if is_image else 'audio'}: {max_label}"},
-                    status_code=400,
-                )
-
-            # Determine label
-            label = "screenshot" if is_image else "voice note"
-            if upload.filename:
-                label = upload.filename
-
-            encoded = base64.standard_b64encode(data).decode("ascii")
-            attachments.append(MediaAttachment(
-                mime_type=content_type,
-                data=encoded,
-                label=label,
-            ))
-
-        # Default message when only media is sent
-        if not message.strip() and attachments:
-            if all(a.is_image for a in attachments):
-                message = "What do you see in this image? Analyze it in the context of my terminal session."
-            elif all(a.is_audio for a in attachments):
-                message = "Listen to my voice message and respond."
-            else:
-                message = "Analyze these attachments and help me."
-
-        logger.info(
-            "Multimodal chat (session=%s): text=%d chars, attachments=%d [%s]",
-            session_id,
-            len(message),
-            len(attachments),
-            ", ".join(a.mime_type for a in attachments),
-        )
-
-        response = await ai.chat(
-            session_id=session_id,
-            user_message=message,
-            terminal_context=terminal_context,
-            mode=mode,
-            attachments=attachments,
-        )
-        return JSONResponse({"response": response})
-
-    except Exception as e:
-        logger.exception("Multimodal chat error (session=%s)", session_id)
-        return JSONResponse({"error": str(e)}, status_code=500)
+        import agent_kernel  # type: ignore
+        procs = agent_kernel.ProcessManager.list_all()
+        sorted_procs = sorted(procs, key=lambda p: p.rss_kb, reverse=True)[:50]
+        return JSONResponse({
+            "processes": [
+                {"pid": p.pid, "name": p.name, "state": p.state,
+                 "rss_mb": round(p.rss_kb / 1024, 1), "cmdline": p.cmdline[:200]}
+                for p in sorted_procs
+            ]
+        })
+    except ImportError:
+        return JSONResponse({"error": "C++ kernel not available"}, status_code=503)
 
 
-@app.post("/api/shellmate")
-async def shellmate(req: ChatRequest):
-    """
-    Shellmate endpoint — forces terminal mode and returns structured segments
-    the frontend can render with ANSI styling in the terminal.
-    """
-    try:
-        raw = await ai.chat(
-            session_id=req.session_id,
-            user_message=req.message,
-            terminal_context=req.terminal_context,
-            mode="terminal",
-        )
-        segments = _parse_shellmate_segments(raw)
-        return JSONResponse({"segments": segments, "raw": raw})
-    except Exception as e:
-        logger.exception("Shellmate error (session=%s)", req.session_id)
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-
-def _parse_shellmate_segments(raw: str) -> list[dict[str, str]]:
-    """
-    Parse the AI's structured shellmate response into typed segments.
-
-    Expected line prefixes from the AI:
-        CMD:  → executable command
-        WARN: → warning text
-        (anything else) → explanatory text
-    """
-    segments: list[dict[str, str]] = []
-    for line in raw.split("\n"):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if stripped.upper().startswith("CMD:"):
-            cmd = stripped[4:].strip()
-            if cmd:
-                segments.append({"type": "command", "text": cmd})
-        elif stripped.upper().startswith("WARN:"):
-            warn = stripped[5:].strip()
-            if warn:
-                segments.append({"type": "warning", "text": warn})
-        else:
-            segments.append({"type": "text", "text": stripped})
-    return segments
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Stateless AI helpers
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-@app.post("/api/explain-error")
-async def explain_error(req: ChatRequest):
-    try:
-        response = await ai.explain_error(req.terminal_context)
-        return JSONResponse({"response": response})
-    except Exception as e:
-        logger.exception("Explain-error failed")
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-
-@app.post("/api/suggest")
-async def suggest(req: SuggestRequest):
-    try:
-        response = await ai.suggest_command(req.task)
-        return JSONResponse({"response": response})
-    except Exception as e:
-        logger.exception("Suggest failed")
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Session management & diagnostics
-# ═══════════════════════════════════════════════════════════════════════════
+# ── Session management ──────────────────────────────────────────────────
 
 
 @app.get("/api/sessions")
 async def list_sessions():
-    """List all active AI conversation sessions (for debugging)."""
     return JSONResponse({
-        "sessions": ai.list_sessions(),
+        "sessions": agent.list_sessions(),
         "terminal_count": terminal_mgr.active_count,
     })
 
 
-@app.post("/api/sessions/clear")
-async def clear_session(req: SessionActionRequest):
-    """Clear conversation history for a specific session."""
-    ai.clear_session(req.session_id)
-    return JSONResponse({"status": "cleared", "session_id": req.session_id})
-
-
 @app.get("/api/health")
 async def health():
-    return {
-        "status": "ok",
-        "service": "LinuxMentor",
-        "active_sessions": terminal_mgr.active_count,
-    }
+    return {"status": "ok", "service": "AgentOS", "tools": tools.count, "skills": len(skills.list_skills())}

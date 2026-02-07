@@ -1,5 +1,21 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# Stage 1: Build React frontend
+# Stage 1: Build C++ kernel
+# ═══════════════════════════════════════════════════════════════════════════
+FROM ubuntu:22.04 AS kernel-build
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake make g++ python3-dev pybind11-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY kernel/ kernel/
+WORKDIR /build/kernel
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Stage 2: Build React frontend
 # ═══════════════════════════════════════════════════════════════════════════
 FROM node:20-slim AS frontend-build
 
@@ -10,20 +26,20 @@ COPY frontend/ .
 RUN npm run build
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Stage 2: Production runtime (Linux learning environment)
+# Stage 3: Production runtime
 # ═══════════════════════════════════════════════════════════════════════════
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ── Install Linux learning tools ────────────────────────────────────────────
+# System tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip \
+    python3 python3-pip python3-dev \
     bash bash-completion \
     curl wget \
     vim nano \
     git \
-    gcc g++ make \
+    gcc g++ make cmake \
     net-tools iputils-ping iproute2 dnsutils \
     htop tree ncdu \
     man-db manpages manpages-dev \
@@ -39,28 +55,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tmux \
     ca-certificates \
     locales \
+    strace ltrace \
     && locale-gen en_US.UTF-8 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
-# ── Create learner user ────────────────────────────────────────────────────
-RUN useradd -m -s /bin/bash learner && \
-    echo "learner ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+# Agent user
+RUN useradd -m -s /bin/bash agent && \
+    echo "agent ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
-# ── Install Python dependencies ────────────────────────────────────────────
+# Python dependencies
 WORKDIR /app
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# ── Copy application ───────────────────────────────────────────────────────
+# C++ kernel module
+COPY --from=kernel-build /build/kernel/build/agent_kernel*.so /usr/lib/python3/dist-packages/
+
+# Application code
 COPY app/ app/
 
-# ── Copy built frontend from stage 1 ──────────────────────────────────────
+# Bundled skills
+COPY skills/ /etc/agentos/skills/
+
+# Built frontend
 COPY --from=frontend-build /build/dist/ app/static/
 
-# ── Welcome message for learner ────────────────────────────────────────────
-RUN echo '#!/bin/bash\necho ""\necho "  🐧 Welcome to LinuxMentor!"\necho "  Type any Linux command to get started."\necho "  Press Ctrl+K for the command palette."\necho "  The AI assistant on the right can help you."\necho ""\n' > /etc/profile.d/welcome.sh && \
+# Skill directories
+RUN mkdir -p /home/agent/skills && chown agent:agent /home/agent/skills
+
+# Welcome message
+RUN echo '#!/bin/bash\necho ""\necho "  AgentOS — Agentic Operating System"\necho "  The AI agent has full access to this environment."\necho "  MCP endpoint: /mcp"\necho ""\n' > /etc/profile.d/welcome.sh && \
     chmod +x /etc/profile.d/welcome.sh
 
 EXPOSE 8000

@@ -1,3 +1,7 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   AgentOS — App Layout
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .app {
   display: flex;
   flex-direction: column;
@@ -7,26 +11,21 @@
   background: var(--surface-0);
 }
 
-/* ── Header ────────────────────────────────────────────────────────────── */
+/* ── Header ───────────────────────────────────────────────────────────── */
+
 .app-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  height: 42px;
   padding: 0 var(--space-4);
-  height: 48px;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border-muted);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border-default);
   z-index: var(--z-header);
   flex-shrink: 0;
 }
 
-.header-left, .header-right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.header-center {
+.header-left, .header-center, .header-right {
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -35,124 +34,82 @@
 .header-logo {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
+
 .logo-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-s);
-  background: var(--accent);
-  color: white;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-s);
+  background: var(--accent);
+  color: white;
 }
+
 .logo-text {
   font-size: var(--font-size-lg);
   font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: -0.4px;
+  letter-spacing: -0.3px;
 }
 
-/* Command palette trigger */
-.header-palette-btn {
+.connection-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  transition: background var(--transition-normal);
+}
+.connection-dot.connected { background: var(--success); }
+.connection-dot.connecting { background: var(--warning); animation: pulse 1.5s infinite; }
+.connection-dot.error, .connection-dot.disconnected { background: var(--danger); }
+
+.header-btn {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 6px var(--space-4);
-  background: var(--surface-3);
+  padding: var(--space-1) var(--space-3);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-m);
-  color: var(--text-tertiary);
+  border-radius: var(--radius-s);
+  background: var(--surface-2);
+  color: var(--text-secondary);
   font-size: var(--font-size-sm);
   font-family: var(--font-sans);
   cursor: pointer;
   transition: all var(--transition-fast);
-  min-width: 260px;
 }
-.header-palette-btn:hover {
-  border-color: var(--accent);
-  color: var(--text-secondary);
-  background: var(--surface-4);
-}
-.palette-btn-icon {
-  opacity: 0.5;
-}
-.palette-btn-text {
-  flex: 1;
-  text-align: left;
-}
-.palette-btn-kbd {
-  font-size: 10px;
-  padding: 2px 6px;
-  background: var(--surface-2);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xs);
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-  font-weight: 500;
-}
-
-/* ── Assistant mode switch ────────────────────────────────────────────── */
-.mode-switch {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px;
+.header-btn:hover {
   background: var(--surface-3);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-full);
-}
-.mode-chip {
-  border: none;
-  background: transparent;
-  color: var(--text-tertiary);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  padding: 5px 10px;
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  font-family: var(--font-sans);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-.mode-chip:hover {
-  color: var(--text-secondary);
-  background: var(--surface-4);
-}
-.mode-chip.active {
-  color: var(--accent);
-  background: var(--accent-subtle);
-  box-shadow: inset 0 0 0 1px var(--border-accent);
+  color: var(--text-primary);
+  border-color: var(--border-accent);
 }
 
-/* Header icon buttons */
 .header-icon-btn {
-  width: 32px;
-  height: 32px;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius-s);
-  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
   color: var(--text-secondary);
+  cursor: pointer;
   transition: all var(--transition-fast);
 }
 .header-icon-btn:hover {
   background: var(--surface-3);
-  border-color: var(--border-default);
   color: var(--text-primary);
 }
 .header-icon-btn.active {
   background: var(--accent-muted);
-  border-color: var(--border-accent);
   color: var(--accent);
 }
 
-/* ── Main Area ─────────────────────────────────────────────────────────── */
+/* ── Main area ────────────────────────────────────────────────────────── */
+
 .app-main {
   display: flex;
   flex: 1;
@@ -161,56 +118,16 @@
 
 .pane {
   overflow: hidden;
-  transition: width 0.2s ease;
-}
-.pane-terminal {
-  min-width: 300px;
-}
-.pane-chat {
-  min-width: 280px;
-  border-left: 1px solid var(--border-muted);
-  animation: slideInRight 0.2s ease;
-}
-
-/* ── Resize Handle ─────────────────────────────────────────────────────── */
-.resize-handle {
-  width: 3px;
-  background: var(--border-muted);
-  cursor: col-resize;
-  transition: background var(--transition-fast);
-  flex-shrink: 0;
   position: relative;
 }
-.resize-handle::after {
-  content: '';
-  position: absolute;
-  inset: 0 -4px;
-}
-.resize-handle:hover,
-.resize-handle.dragging {
-  background: var(--accent);
-}
 
-/* ── Responsive ────────────────────────────────────────────────────────── */
-@media (max-width: 768px) {
-  .header-palette-btn {
-    min-width: auto;
-  }
-  .mode-switch {
-    display: none;
-  }
-  .palette-btn-text,
-  .palette-btn-kbd {
-    display: none;
-  }
-  .pane-chat {
-    position: absolute;
-    right: 0;
-    top: 48px;
-    bottom: 0;
-    width: 100% !important;
-    max-width: 400px;
-    z-index: var(--z-panel);
-    box-shadow: var(--shadow-lg);
-  }
+.resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: var(--border-default);
+  transition: background var(--transition-fast);
+  flex-shrink: 0;
+}
+.resize-handle:hover, .resize-handle.dragging {
+  background: var(--accent);
 }
