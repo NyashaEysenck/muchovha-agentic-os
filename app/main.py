@@ -66,12 +66,12 @@ monitor = HealthMonitor()
 # In-memory attachment store (attachment_id → Attachment)
 _uploads: dict[str, Attachment] = {}
 
-# ── Auto-heal callback: runs agent and collects response ─────────────
+# ── Auto-heal callback: runs agent on the default session so user sees it ──
 
 async def _auto_heal_callback(goal: str) -> str:
-    """Run the agent loop for auto-heal and collect the text response."""
+    """Run the agent loop for auto-heal and stream events to the default session."""
     parts: list[str] = []
-    async for event in agent.run(goal, session_id="__autoheal__"):
+    async for event in agent.run(f"[AUTO-HEAL] {goal}", session_id="default"):
         if event.type.value == "text":
             parts.append(event.data.get("text", ""))
     return "\n".join(parts)

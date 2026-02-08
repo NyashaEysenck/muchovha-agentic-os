@@ -35,6 +35,8 @@ export interface MonitorAlert {
   detail: string
   timestamp: number
   auto_healed?: boolean
+  healing_in_progress?: boolean
+  agent_response?: string
 }
 
 export interface Toast {

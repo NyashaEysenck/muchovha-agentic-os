@@ -1,29 +1,27 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useEffect } from 'react'
 import { useStore } from './store'
 import { TerminalPanel } from './components/TerminalPanel'
-import { AgentPanel } from './components/AgentPanel'
+import { AgentTimeline } from './components/AgentTimeline'
+import { SystemVitals } from './components/SystemVitals'
+import { AlertFeed } from './components/AlertFeed'
+import { CommandBar } from './components/CommandBar'
 import { SkillDrawer } from './components/SkillDrawer'
-import { SystemBar } from './components/SystemBar'
 import { Toasts } from './components/Toasts'
-import { Terminal, Sun, Moon, Cpu, Puzzle, PanelRightOpen, PanelRightClose, ShieldCheck, ShieldAlert, ShieldOff } from 'lucide-react'
+import { Sun, Moon, Cpu, Puzzle, Loader2 } from 'lucide-react'
 import './theme.css'
 import './App.css'
 
 export function App() {
   const theme = useStore((s) => s.theme)
   const toggleTheme = useStore((s) => s.toggleTheme)
-  const isAgentPanelOpen = useStore((s) => s.isAgentPanelOpen)
-  const toggleAgentPanel = useStore((s) => s.toggleAgentPanel)
   const toggleSkillDrawer = useStore((s) => s.toggleSkillDrawer)
   const connectionStatus = useStore((s) => s.connectionStatus)
   const setSkills = useStore((s) => s.setSkills)
   const setMetrics = useStore((s) => s.setMetrics)
   const setThinkingEnabled = useStore((s) => s.setThinkingEnabled)
   const setMonitorState = useStore((s) => s.setMonitorState)
+  const isRunning = useStore((s) => s.isAgentRunning)
   const monitorStatus = useStore((s) => s.monitorStatus)
-  const autoHealEnabled = useStore((s) => s.autoHealEnabled)
-  const toggleAutoHeal = useStore((s) => s.toggleAutoHeal)
-  const monitorAlerts = useStore((s) => s.monitorAlerts)
 
   // Fetch skills + thinking state on mount
   useEffect(() => {
@@ -31,13 +29,13 @@ export function App() {
     fetch('/api/thinking').then((r) => r.json()).then((d) => setThinkingEnabled(d.enabled)).catch(() => {})
   }, [setSkills, setThinkingEnabled])
 
-  // Poll system metrics every 5s
+  // Poll system metrics every 3s
   useEffect(() => {
     const poll = () => fetch('/api/system/metrics').then((r) => r.json()).then((d) => {
       if (!d.error) setMetrics(d)
     }).catch(() => {})
     poll()
-    const iv = setInterval(poll, 5000)
+    const iv = setInterval(poll, 3000)
     return () => clearInterval(iv)
   }, [setMetrics])
 
@@ -51,43 +49,12 @@ export function App() {
     return () => clearInterval(iv)
   }, [setMonitorState])
 
-  // ── Resize handle ──────────────────────────────────────────────────
-  const [splitPct, setSplitPct] = useState(55)
-  const [isDragging, setIsDragging] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    setIsDragging(true)
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-  }, [])
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!containerRef.current) return
-      // Only process moves during drag — check via ref to avoid dep
-      setIsDragging((dragging) => {
-        if (!dragging) return false
-        const rect = containerRef.current!.getBoundingClientRect()
-        const pct = ((e.clientX - rect.left) / rect.width) * 100
-        setSplitPct(Math.max(25, Math.min(75, pct)))
-        return true
-      })
-    }
-    const onUp = () => {
-      setIsDragging(false)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-  }, [])
+  // Dynamic border glow on anomaly
+  const glowClass = monitorStatus === 'critical' ? 'glow-danger' : monitorStatus === 'warning' ? 'glow-warn' : ''
 
   return (
-    <div className="app" data-theme={theme}>
-      {/* Header */}
+    <div className={`app ${glowClass}`} data-theme={theme}>
+      {/* ── Top bar ──────────────────────────────────────────────────── */}
       <header className="app-header">
         <div className="header-left">
           <div className="header-logo">
@@ -95,55 +62,52 @@ export function App() {
             <span className="logo-text">AgentOS</span>
           </div>
           <span className={`connection-dot ${connectionStatus}`} title={connectionStatus} />
+          {isRunning && <span className="header-running"><Loader2 size={12} className="spin" /> Agent active</span>}
         </div>
 
-        <div className="header-center">
+        <div className="header-right">
           <button className="header-btn" onClick={toggleSkillDrawer} title="Skills">
             <Puzzle size={14} />
             <span>Skills</span>
           </button>
-          <button
-            className={`header-btn ${autoHealEnabled ? 'header-btn-active' : ''} ${monitorStatus === 'critical' ? 'header-btn-danger' : monitorStatus === 'warning' ? 'header-btn-warn' : ''}`}
-            onClick={toggleAutoHeal}
-            title={autoHealEnabled ? 'Self-Heal ON — click to disable' : 'Self-Heal OFF — click to enable'}
-          >
-            {monitorStatus === 'critical' ? <ShieldAlert size={14} /> : autoHealEnabled ? <ShieldCheck size={14} /> : <ShieldOff size={14} />}
-            <span>Self-Heal{autoHealEnabled ? '' : ' Off'}</span>
-            {monitorAlerts.length > 0 && <span className="alert-count">{monitorAlerts.length}</span>}
-          </button>
-        </div>
-
-        <div className="header-right">
           <button className="header-icon-btn" onClick={toggleTheme} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
             {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
-          </button>
-          <button className={`header-icon-btn ${isAgentPanelOpen ? 'active' : ''}`} onClick={toggleAgentPanel} title="Toggle agent panel">
-            {isAgentPanelOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
           </button>
         </div>
       </header>
 
-      {/* Main area */}
-      <div className="app-main" ref={containerRef}>
-        <div className="pane pane-terminal" style={{ width: isAgentPanelOpen ? `${splitPct}%` : '100%' }}>
+      {/* ── Dashboard grid ───────────────────────────────────────────── */}
+      <div className="dashboard">
+        {/* Left: Terminal (main viewport) */}
+        <div className="tile tile-terminal">
           <TerminalPanel />
+          {/* Agent operating overlay */}
+          {isRunning && (
+            <div className="terminal-agent-overlay">
+              <Loader2 size={14} className="spin" />
+              <span>Agent is operating</span>
+            </div>
+          )}
         </div>
 
-        {isAgentPanelOpen && (
-          <div className={`resize-handle ${isDragging ? 'dragging' : ''}`} onMouseDown={onMouseDown} />
-        )}
-
-        {isAgentPanelOpen && (
-          <div className="pane pane-agent" style={{ width: `${100 - splitPct}%` }}>
-            <AgentPanel />
+        {/* Right column: stacked panels */}
+        <div className="tile-column">
+          <div className="tile tile-vitals">
+            <SystemVitals />
           </div>
-        )}
+          <div className="tile tile-alerts">
+            <AlertFeed />
+          </div>
+          <div className="tile tile-timeline">
+            <AgentTimeline />
+          </div>
+        </div>
       </div>
 
-      {/* System bar */}
-      <SystemBar />
+      {/* ── Command bar (bottom) ─────────────────────────────────────── */}
+      <CommandBar />
 
-      {/* Overlays */}
+      {/* ── Overlays ─────────────────────────────────────────────────── */}
       <SkillDrawer />
       <Toasts />
     </div>

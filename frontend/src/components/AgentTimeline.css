@@ -1,0 +1,267 @@
+/* ── Agent Timeline Tile ────────────────────────────────────────────── */
+
+.timeline-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--surface-0);
+  border-radius: var(--radius-m);
+  border: 1px solid var(--border-default);
+  overflow: hidden;
+}
+
+.timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-muted);
+  flex-shrink: 0;
+}
+
+.timeline-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--success);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.timeline-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3);
+}
+
+.timeline-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 100%;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.timeline-empty-sub {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+/* ── Timeline track ────────────────────────────────────────────────── */
+
+.timeline-track {
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline-node {
+  display: flex;
+  gap: var(--space-2);
+  position: relative;
+  padding-bottom: var(--space-2);
+  animation: fadeIn 0.15s ease;
+}
+
+.timeline-connector {
+  position: absolute;
+  left: 9px;
+  top: 20px;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-default);
+}
+
+/* ── Dots ──────────────────────────────────────────────────────────── */
+
+.timeline-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  z-index: 1;
+  border: 2px solid var(--surface-0);
+}
+
+.dot-user { background: var(--accent); color: white; }
+.dot-response { background: var(--accent); color: white; }
+.dot-tool { background: rgba(251, 191, 36, 0.15); color: var(--warning); border-color: var(--surface-0); }
+.dot-result { background: rgba(34, 211, 153, 0.15); color: var(--success); }
+.dot-thought { background: rgba(168, 85, 247, 0.15); color: rgb(168, 85, 247); }
+.dot-error { background: rgba(248, 113, 113, 0.15); color: var(--danger); }
+.dot-status { background: var(--surface-3); color: var(--text-tertiary); }
+.dot-working { background: var(--accent); color: white; }
+
+.timeline-node-active .timeline-dot {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+/* ── Content ───────────────────────────────────────────────────────── */
+
+.timeline-content {
+  flex: 1;
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.tl-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+  margin-bottom: 2px;
+}
+
+.tl-expand {
+  font-size: 9px;
+  cursor: pointer;
+  opacity: 0.5;
+}
+
+.tl-text {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.tl-working {
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.tl-status {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+}
+
+/* ── User node ─────────────────────────────────────────────────────── */
+
+.tl-user .tl-label { color: var(--accent); }
+
+.tl-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.tl-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+.tl-thumb {
+  width: 32px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+/* ── Tool call node ────────────────────────────────────────────────── */
+
+.tl-tool .tl-label { color: var(--warning); }
+
+.tl-tool-name {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--warning);
+  background: rgba(251, 191, 36, 0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-right: var(--space-1);
+}
+
+.tl-tool-args {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  word-break: break-all;
+}
+
+/* ── Result node ───────────────────────────────────────────────────── */
+
+.tl-result { cursor: pointer; }
+.tl-result .tl-label { color: var(--success); }
+
+.tl-output {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 150px;
+  overflow-y: auto;
+  margin: 2px 0 0;
+  background: var(--surface-1);
+  padding: var(--space-2);
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-muted);
+}
+
+/* ── Thought node ──────────────────────────────────────────────────── */
+
+.tl-thought { cursor: pointer; }
+.tl-thought .tl-label { color: rgb(168, 85, 247); }
+
+.tl-thought-text {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  font-style: italic;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* ── Error node ────────────────────────────────────────────────────── */
+
+.tl-error .tl-label { color: var(--danger); }
+.tl-error .tl-text { color: var(--danger); }
+
+/* ── Response (markdown) ───────────────────────────────────────────── */
+
+.tl-response .tl-label { color: var(--accent); }
+
+.tl-markdown { color: var(--text-primary); font-size: var(--font-size-sm); }
+.tl-markdown p { margin: 0 0 var(--space-2); }
+.tl-markdown p:last-child { margin: 0; }
+.tl-markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--surface-3);
+}
+.tl-markdown pre {
+  background: var(--surface-2);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-s);
+  padding: var(--space-2);
+  overflow-x: auto;
+  margin: var(--space-2) 0;
+}
+.tl-markdown pre code { background: none; padding: 0; font-size: 11px; }
+.tl-markdown ul, .tl-markdown ol { padding-left: var(--space-5); margin: var(--space-2) 0; }
+.tl-markdown strong { color: var(--text-primary); }

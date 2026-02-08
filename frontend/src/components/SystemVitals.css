@@ -1,0 +1,111 @@
+/* ── System Vitals Tile ─────────────────────────────────────────────── */
+
+.vitals-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--surface-0);
+  border-radius: var(--radius-m);
+  border: 1px solid var(--border-default);
+  overflow: hidden;
+}
+
+.vitals-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-muted);
+  flex-shrink: 0;
+}
+
+.vitals-cores {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.vitals-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.vitals-gauges {
+  display: flex;
+  justify-content: space-around;
+  padding: var(--space-3) var(--space-2);
+  flex: 1;
+}
+
+/* ── Arc gauge ─────────────────────────────────────────────────────── */
+
+.arc-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+.arc-gauge svg {
+  filter: drop-shadow(0 0 4px rgba(45, 212, 191, 0.08));
+}
+
+.arc-value {
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.arc-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -55%);
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+}
+
+.arc-number {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 1;
+}
+
+.arc-unit {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.arc-title {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 600;
+  margin-top: -4px;
+}
+
+/* ── Details rows ──────────────────────────────────────────────────── */
+
+.vitals-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--space-3) var(--space-2);
+  flex-shrink: 0;
+}
+
+.vitals-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+.vitals-key { color: var(--text-tertiary); }
+.vitals-val { color: var(--text-secondary); }

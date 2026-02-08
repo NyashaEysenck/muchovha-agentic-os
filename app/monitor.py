@@ -280,6 +280,8 @@ class HealthMonitor:
                 "detail": a.detail,
                 "timestamp": a.timestamp,
                 "auto_healed": a.auto_healed,
+                "healing_in_progress": a.auto_healed and not a.agent_response,
+                "agent_response": a.agent_response[:500] if a.agent_response else "",
             }
             for a in self.alerts if not a.resolved
         ]

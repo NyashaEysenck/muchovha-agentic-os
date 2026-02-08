@@ -1,0 +1,207 @@
+/* ── Command Bar ────────────────────────────────────────────────────── */
+
+.command-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface-1);
+  border-top: 1px solid var(--border-default);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.command-bar.drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+/* ── Status indicator ──────────────────────────────────────────────── */
+
+.cmd-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: var(--font-mono);
+  padding: 0 var(--space-1);
+}
+
+.status-orb {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transition: background 0.3s ease;
+}
+
+.cmd-status-idle { color: var(--text-tertiary); }
+.cmd-status-idle .status-orb { background: var(--text-tertiary); }
+
+.cmd-status-thinking { color: rgb(168, 85, 247); }
+.cmd-status-thinking .status-orb { background: rgb(168, 85, 247); animation: pulse 1.2s ease-in-out infinite; }
+
+.cmd-status-executing { color: var(--warning); }
+.cmd-status-executing .status-orb { background: var(--warning); animation: pulse 0.8s ease-in-out infinite; }
+
+.cmd-status-monitoring { color: var(--success); }
+.cmd-status-monitoring .status-orb { background: var(--success); animation: breathing 3s ease-in-out infinite; }
+
+.cmd-status-healing { color: var(--danger); }
+.cmd-status-healing .status-orb { background: var(--danger); animation: pulse 0.6s ease-in-out infinite; }
+
+/* ── Attachment bar ────────────────────────────────────────────────── */
+
+.cmd-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 var(--space-1);
+}
+
+.cmd-att-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.cmd-att-thumb {
+  width: 24px;
+  height: 16px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.cmd-att-chip button {
+  display: flex;
+  align-items: center;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 0;
+}
+.cmd-att-chip button:hover { color: var(--danger); }
+
+/* ── Input row ─────────────────────────────────────────────────────── */
+
+.cmd-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.cmd-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.cmd-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-default);
+  margin: 0 4px;
+}
+
+.cmd-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+.cmd-action:hover:not(:disabled) { background: var(--surface-2); color: var(--text-secondary); }
+.cmd-action:disabled { opacity: 0.3; cursor: not-allowed; }
+.cmd-action.recording { color: var(--danger); background: var(--danger-muted); animation: pulse 1.5s ease-in-out infinite; }
+
+.cmd-thinking.active {
+  color: rgb(168, 85, 247);
+  background: rgba(168, 85, 247, 0.1);
+}
+
+.cmd-input {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-s);
+  background: var(--surface-0);
+  color: var(--text-primary);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  outline: none;
+  transition: border-color var(--transition-fast);
+  max-height: 80px;
+}
+.cmd-input:focus { border-color: var(--accent); }
+.cmd-input::placeholder { color: var(--text-tertiary); }
+
+.cmd-send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+.cmd-send:hover:not(:disabled) { background: var(--accent-hover); }
+.cmd-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.cmd-stop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: rgb(239, 68, 68);
+  color: white;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+  animation: fadeIn 0.15s ease;
+}
+.cmd-stop:hover { background: rgb(220, 50, 50); }
+
+/* ── Drop overlay ──────────────────────────────────────────────────── */
+
+.cmd-drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  background: rgba(45, 212, 191, 0.06);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-s);
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  pointer-events: none;
+}
