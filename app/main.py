@@ -236,6 +236,23 @@ async def deactivate_skill(name: str):
     return JSONResponse({"name": name, "active": False})
 
 
+# ── Thinking mode toggle ────────────────────────────────────────────
+
+
+@app.get("/api/thinking")
+async def get_thinking():
+    """Get current thinking mode status."""
+    return JSONResponse({"enabled": agent.thinking_enabled})
+
+
+@app.post("/api/thinking/toggle")
+async def toggle_thinking():
+    """Toggle thinking mode on/off."""
+    agent.thinking_enabled = not agent.thinking_enabled
+    logger.info("Thinking mode toggled to %s", agent.thinking_enabled)
+    return JSONResponse({"enabled": agent.thinking_enabled})
+
+
 # ── System endpoints ────────────────────────────────────────────────────
 
 

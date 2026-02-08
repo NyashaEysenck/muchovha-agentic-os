@@ -76,6 +76,11 @@ interface AppState {
   isRecording: boolean
   setRecording: (v: boolean) => void
 
+  // Thinking mode
+  thinkingEnabled: boolean
+  setThinkingEnabled: (v: boolean) => void
+  toggleThinking: () => Promise<void>
+
   // Skills
   skills: Skill[]
   setSkills: (s: Skill[]) => void
@@ -136,6 +141,19 @@ export const useStore = create<AppState>((set, get) => ({
   // ── Audio recording ───────────────────────────────────────────────
   isRecording: false,
   setRecording: (isRecording) => set({ isRecording }),
+
+  // ── Thinking mode ─────────────────────────────────────────────────
+  thinkingEnabled: true,
+  setThinkingEnabled: (thinkingEnabled) => set({ thinkingEnabled }),
+  toggleThinking: async () => {
+    try {
+      const res = await fetch('/api/thinking/toggle', { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        set({ thinkingEnabled: data.enabled })
+      }
+    } catch {}
+  },
 
   // ── Skills ────────────────────────────────────────────────────────
   skills: [],

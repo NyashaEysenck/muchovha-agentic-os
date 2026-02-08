@@ -18,11 +18,13 @@ export function App() {
   const connectionStatus = useStore((s) => s.connectionStatus)
   const setSkills = useStore((s) => s.setSkills)
   const setMetrics = useStore((s) => s.setMetrics)
+  const setThinkingEnabled = useStore((s) => s.setThinkingEnabled)
 
-  // Fetch skills on mount
+  // Fetch skills + thinking state on mount
   useEffect(() => {
     fetch('/api/skills').then((r) => r.json()).then((d) => setSkills(d.skills || [])).catch(() => {})
-  }, [setSkills])
+    fetch('/api/thinking').then((r) => r.json()).then((d) => setThinkingEnabled(d.enabled)).catch(() => {})
+  }, [setSkills, setThinkingEnabled])
 
   // Poll system metrics every 5s
   useEffect(() => {

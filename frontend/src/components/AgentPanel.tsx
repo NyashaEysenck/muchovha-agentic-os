@@ -68,6 +68,10 @@ export function AgentPanel() {
   const removeAttachment = useStore((s) => s.removeAttachment)
   const clearAttachments = useStore((s) => s.clearAttachments)
 
+  // Thinking mode
+  const thinkingEnabled = useStore((s) => s.thinkingEnabled)
+  const toggleThinking = useStore((s) => s.toggleThinking)
+
   // Audio recording
   const isRecording = useStore((s) => s.isRecording)
   const setRecording = useStore((s) => s.setRecording)
@@ -277,7 +281,14 @@ export function AgentPanel() {
         </div>
         <div className="agent-header-right">
           <span className="agent-badge">Gemini 3</span>
-          <span className="agent-badge thinking-badge">Thinking</span>
+          <button
+            className={`agent-badge thinking-badge ${thinkingEnabled ? 'on' : 'off'}`}
+            onClick={toggleThinking}
+            title={thinkingEnabled ? 'Thinking mode ON — click to disable' : 'Thinking mode OFF — click to enable'}
+          >
+            <Brain size={10} />
+            {thinkingEnabled ? 'Thinking' : 'Thinking Off'}
+          </button>
           <button className="agent-clear-btn" onClick={clearEvents} title="Clear">Clear</button>
         </div>
       </div>

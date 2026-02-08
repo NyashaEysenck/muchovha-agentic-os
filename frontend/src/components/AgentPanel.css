@@ -49,7 +49,32 @@
 }
 
 .thinking-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  border: none;
+  font-family: var(--font-sans);
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.thinking-badge.on {
   background: rgba(168, 85, 247, 0.15);
+  color: rgb(168, 85, 247);
+}
+
+.thinking-badge.on:hover {
+  background: rgba(168, 85, 247, 0.25);
+}
+
+.thinking-badge.off {
+  background: var(--surface-3);
+  color: var(--text-tertiary);
+}
+
+.thinking-badge.off:hover {
+  background: rgba(168, 85, 247, 0.1);
   color: rgb(168, 85, 247);
 }
 

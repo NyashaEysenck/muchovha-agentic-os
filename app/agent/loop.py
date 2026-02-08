@@ -163,6 +163,7 @@ class AgentLoop:
         self._tools = tools
         self._skills = skills
         self._sessions: dict[str, Session] = {}
+        self.thinking_enabled: bool = True
 
     def get_session(self, session_id: str) -> Session:
         if session_id not in self._sessions:
@@ -219,19 +220,25 @@ class AgentLoop:
             if skills_xml:
                 system_prompt += f"\n\n{skills_xml}"
 
-            # ── Call Gemini with tools + thinking mode ────────────────
+            # ── Call Gemini with tools + optional thinking mode ─────────
             try:
                 contents = self._build_contents(system_prompt, session)
-                response = self._client.models.generate_content(
-                    model=self._model,
-                    contents=contents,
-                    config=genai_types.GenerateContentConfig(
+                gen_config = genai_types.GenerateContentConfig(
+                    tools=self._tools.to_gemini_tools(),
+                    temperature=0.3,
+                )
+                if self.thinking_enabled:
+                    gen_config = genai_types.GenerateContentConfig(
                         tools=self._tools.to_gemini_tools(),
                         temperature=0.3,
                         thinking_config=genai_types.ThinkingConfig(
                             include_thoughts=True,
                         ),
-                    ),
+                    )
+                response = self._client.models.generate_content(
+                    model=self._model,
+                    contents=contents,
+                    config=gen_config,
                 )
             except Exception as e:
                 logger.exception("Gemini API error")
