@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../store'
-import { ShieldCheck, ShieldOff, X, Activity, Loader2, ChevronDown, ChevronRight, Wrench } from 'lucide-react'
+import { ShieldCheck, ShieldOff, X, Activity, Loader2, ChevronDown, ChevronRight, Wrench, Zap } from 'lucide-react'
 import './AlertFeed.css'
 
 export function AlertFeed() {
@@ -9,6 +9,8 @@ export function AlertFeed() {
   const autoHealEnabled = useStore((s) => s.autoHealEnabled)
   const toggleAutoHeal = useStore((s) => s.toggleAutoHeal)
   const monitorStatus = useStore((s) => s.monitorStatus)
+  const queueGoal = useStore((s) => s.queueGoal)
+  const isRunning = useStore((s) => s.isAgentRunning)
 
   return (
     <div className="alert-feed-panel">
@@ -35,7 +37,7 @@ export function AlertFeed() {
           </div>
         ) : (
           alerts.map((alert) => (
-            <AlertCard key={alert.id} alert={alert} onDismiss={dismissAlert} />
+            <AlertCard key={alert.id} alert={alert} onDismiss={dismissAlert} onFix={queueGoal} isAgentBusy={isRunning} />
           ))
         )}
       </div>
@@ -43,8 +45,16 @@ export function AlertFeed() {
   )
 }
 
-function AlertCard({ alert, onDismiss }: { alert: any; onDismiss: (id: string) => void }) {
+function AlertCard({ alert, onDismiss, onFix, isAgentBusy }: {
+  alert: any
+  onDismiss: (id: string) => void
+  onFix: (goal: string) => void
+  isAgentBusy: boolean
+}) {
   const [expanded, setExpanded] = useState(false)
+
+  const canFix = !alert.auto_healed && !alert.healing_in_progress
+  const fixGoal = `Investigate and fix: ${alert.title}. Detail: ${alert.detail}. Category: ${alert.category}, severity: ${alert.severity}.`
 
   return (
     <div className={`feed-alert feed-alert-${alert.severity}`}>
@@ -65,7 +75,7 @@ function AlertCard({ alert, onDismiss }: { alert: any; onDismiss: (id: string) =
           {alert.auto_healed && alert.agent_response && (
             <button className="feed-alert-healed-btn" onClick={() => setExpanded(!expanded)}>
               <Wrench size={9} />
-              <span>Auto-healed</span>
+              <span>Fixed</span>
               {expanded ? <ChevronDown size={9} /> : <ChevronRight size={9} />}
             </button>
           )}
@@ -73,8 +83,21 @@ function AlertCard({ alert, onDismiss }: { alert: any; onDismiss: (id: string) =
           {/* Just healed, no response yet */}
           {alert.auto_healed && !alert.agent_response && !alert.healing_in_progress && (
             <span className="feed-alert-healed">
-              <ShieldCheck size={9} /> Auto-healed
+              <ShieldCheck size={9} /> Fixed
             </span>
+          )}
+
+          {/* Manual fix button — only when not already healed */}
+          {canFix && (
+            <button
+              className="feed-alert-fix"
+              onClick={() => onFix(fixGoal)}
+              disabled={isAgentBusy}
+              title={isAgentBusy ? 'Agent is busy' : 'Ask agent to investigate and fix'}
+            >
+              <Zap size={9} />
+              Fix
+            </button>
           )}
         </div>
         <button className="feed-alert-dismiss" onClick={() => onDismiss(alert.id)}>

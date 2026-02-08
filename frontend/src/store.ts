@@ -77,6 +77,9 @@ interface AppState {
   setAgentRunning: (v: boolean) => void
   agentInput: string
   setAgentInput: (s: string) => void
+  queuedGoal: string | null
+  queueGoal: (goal: string) => void
+  consumeQueuedGoal: () => string | null
 
   // Attachments (pending upload for next agent run)
   attachments: UploadedAttachment[]
@@ -153,6 +156,13 @@ export const useStore = create<AppState>((set, get) => ({
   setAgentRunning: (isAgentRunning) => set({ isAgentRunning }),
   agentInput: '',
   setAgentInput: (agentInput) => set({ agentInput }),
+  queuedGoal: null,
+  queueGoal: (goal) => set({ queuedGoal: goal }),
+  consumeQueuedGoal: () => {
+    const goal = get().queuedGoal
+    set({ queuedGoal: null })
+    return goal
+  },
 
   // ── Attachments ───────────────────────────────────────────────────
   attachments: [],

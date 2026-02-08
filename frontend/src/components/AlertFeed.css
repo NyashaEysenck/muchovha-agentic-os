@@ -183,6 +183,33 @@
   line-height: 1.4;
 }
 
+.feed-alert-fix {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 2px 8px;
+  margin-top: 3px;
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-full);
+  background: var(--accent-muted);
+  color: var(--accent);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: all var(--transition-fast);
+}
+.feed-alert-fix:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--text-inverse);
+}
+.feed-alert-fix:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .feed-alert-dismiss {
   display: flex;
   align-items: center;

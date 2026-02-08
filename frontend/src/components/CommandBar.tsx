@@ -205,6 +205,17 @@ export function CommandBar() {
     } finally { abortRef.current = null; setRunning(false) }
   }, [input, isRunning, sessionId, addEvent, setInput, setRunning, addToast, clearAttachments])
 
+  // ── Watch for queued goals (from AlertFeed "Fix" button) ───────────
+  const queuedGoal = useStore((s) => s.queuedGoal)
+  const consumeQueuedGoal = useStore((s) => s.consumeQueuedGoal)
+
+  useEffect(() => {
+    if (queuedGoal && !isRunning) {
+      const goal = consumeQueuedGoal()
+      if (goal) runAgent(goal)
+    }
+  }, [queuedGoal, isRunning, consumeQueuedGoal, runAgent])
+
   // ── Drop handler ──────────────────────────────────────────────────
   const [isDragOver, setDragOver] = useState(false)
 
