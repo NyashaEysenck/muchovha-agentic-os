@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import fcntl
 import logging
 import os
@@ -28,6 +29,7 @@ class TerminalSession:
         return self.process.poll() is None
 
     def close(self) -> None:
+        """Close the PTY session. Safe to call from a thread (non-blocking)."""
         try:
             os.close(self.master_fd)
         except OSError:
@@ -36,7 +38,11 @@ class TerminalSession:
             self.process.terminate()
             self.process.wait(timeout=3)
         except Exception:
-            self.process.kill()
+            try:
+                self.process.kill()
+                self.process.wait(timeout=1)
+            except Exception:
+                pass
         logger.info("Session %s closed", self.session_id)
 
 
@@ -78,26 +84,42 @@ class TerminalManager:
         return session_id
 
     def write(self, session_id: str, data: bytes) -> None:
+        """Write data to the PTY, handling short writes on non-blocking fds."""
         s = self._sessions.get(session_id)
-        if s:
+        if not s:
+            return
+        view = memoryview(data)
+        while len(view) > 0:
             try:
-                os.write(s.master_fd, data)
-            except OSError:
-                pass
+                n = os.write(s.master_fd, view)
+                view = view[n:]
+            except OSError as e:
+                if e.errno == errno.EAGAIN:
+                    break  # buffer full — drop remaining (rare)
+                break
 
     def read(self, session_id: str) -> bytes:
+        """Read all available data from the PTY (drain loop)."""
         s = self._sessions.get(session_id)
         if not s:
             return b""
+        chunks: list[bytes] = []
         try:
-            data = os.read(s.master_fd, config.terminal.read_buffer_size)
-            text = data.decode("utf-8", errors="replace")
-            s.history.append(text)
-            if len(s.history) > config.terminal.history_chunk_limit:
-                s.history = s.history[-config.terminal.history_chunk_limit:]
-            return data
-        except (OSError, IOError):
+            while True:
+                chunk = os.read(s.master_fd, 65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+        except OSError:
+            pass  # EAGAIN or EIO — done reading
+        if not chunks:
             return b""
+        data = b"".join(chunks)
+        text = data.decode("utf-8", errors="replace")
+        s.history.append(text)
+        if len(s.history) > config.terminal.history_chunk_limit:
+            s.history = s.history[-config.terminal.history_chunk_limit:]
+        return data
 
     def get_history(self, session_id: str) -> str:
         s = self._sessions.get(session_id)

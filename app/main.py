@@ -137,14 +137,15 @@ async def terminal_ws(websocket: WebSocket):
     async def pty_reader():
         while True:
             await asyncio.sleep(config.server.pty_poll_interval)
-            if not terminal_mgr.is_alive(session_id):
-                break
             data = terminal_mgr.read(session_id)
             if data:
                 try:
                     await websocket.send_bytes(data)
                 except Exception:
                     break
+            elif not terminal_mgr.is_alive(session_id):
+                # Only exit after draining all buffered data
+                break
 
     reader_task = asyncio.create_task(pty_reader())
     try:
@@ -168,7 +169,13 @@ async def terminal_ws(websocket: WebSocket):
         logger.exception("WebSocket error: %s", session_id)
     finally:
         reader_task.cancel()
-        terminal_mgr.close_session(session_id)
+        try:
+            await reader_task
+        except asyncio.CancelledError:
+            pass
+        # Run blocking close in executor to avoid freezing the event loop
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, terminal_mgr.close_session, session_id)
         agent.remove_session(session_id)
 
 

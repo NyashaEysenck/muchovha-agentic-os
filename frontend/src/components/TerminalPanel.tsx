@@ -15,6 +15,9 @@ export function TerminalPanel() {
   const searchRef = useRef<SearchAddon | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const resizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const unmountedRef = useRef(false)
 
   const fontSize = useStore((s) => s.terminalFontSize)
   const setFontSize = useStore((s) => s.setTerminalFontSize)
@@ -24,6 +27,8 @@ export function TerminalPanel() {
   const [isSearchOpen, setSearchOpen] = useState(false)
 
   const connectWS = useCallback(() => {
+    if (unmountedRef.current) return
+
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     const ws = new WebSocket(`${proto}://${location.host}/ws/terminal`)
     ws.binaryType = 'arraybuffer'
@@ -48,7 +53,12 @@ export function TerminalPanel() {
       }
     }
 
-    ws.onclose = () => { setConnectionStatus('disconnected'); setTimeout(connectWS, 2000) }
+    ws.onclose = () => {
+      setConnectionStatus('disconnected')
+      if (!unmountedRef.current) {
+        reconnectTimer.current = setTimeout(connectWS, 2000)
+      }
+    }
     ws.onerror = () => setConnectionStatus('error')
   }, [setConnectionStatus, setSessionId])
 
@@ -97,11 +107,15 @@ export function TerminalPanel() {
     })
 
     const ro = new ResizeObserver(() => {
-      fitAddon.fit()
-      const ws = wsRef.current
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
-      }
+      // Debounce resize to avoid flooding during drag-resize
+      if (resizeTimer.current) clearTimeout(resizeTimer.current)
+      resizeTimer.current = setTimeout(() => {
+        fitAddon.fit()
+        const ws = wsRef.current
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
+        }
+      }, 80)
     })
     ro.observe(containerRef.current)
 
@@ -123,7 +137,14 @@ export function TerminalPanel() {
     }
 
     connectWS()
-    return () => { ro.disconnect(); term.dispose(); wsRef.current?.close() }
+    return () => {
+      unmountedRef.current = true
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
+      if (resizeTimer.current) clearTimeout(resizeTimer.current)
+      ro.disconnect()
+      term.dispose()
+      wsRef.current?.close()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectWS])
 
