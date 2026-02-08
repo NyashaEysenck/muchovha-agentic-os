@@ -42,6 +42,7 @@ class Alert:
     timestamp: float = field(default_factory=time.time)
     resolved: bool = False
     auto_healed: bool = False
+    heal_complete: bool = False
     agent_response: str = ""
 
 
@@ -127,9 +128,16 @@ class HealthMonitor:
         return alert
 
     def _resolve_alerts(self, category: str, title: str) -> None:
-        """Mark matching alerts as resolved."""
+        """Mark matching alerts as resolved.
+
+        Auto-healed alerts are kept visible so the user can review what the
+        agent did. They must be dismissed manually.
+        """
         for a in self.alerts:
             if not a.resolved and a.category == category and a.title == title:
+                if a.auto_healed:
+                    # Don't auto-resolve — keep visible for user review
+                    continue
                 a.resolved = True
                 logger.info("RESOLVED [%s] %s: %s", a.severity.value, category, title)
 
@@ -261,12 +269,17 @@ class HealthMonitor:
             return
 
         alert.auto_healed = True
+        alert.heal_complete = False
         logger.info("Auto-heal triggered for: %s", alert.title)
 
         try:
             response = await self._agent_callback(goal)
-            alert.agent_response = response or ""
+            alert.agent_response = response or "(No output)"
+            alert.heal_complete = True
+            logger.info("Auto-heal completed for: %s", alert.title)
         except Exception:
+            alert.agent_response = "Auto-heal failed — check logs."
+            alert.heal_complete = True
             logger.exception("Auto-heal agent callback failed")
 
     def get_active_alerts(self) -> list[dict]:
@@ -280,7 +293,8 @@ class HealthMonitor:
                 "detail": a.detail,
                 "timestamp": a.timestamp,
                 "auto_healed": a.auto_healed,
-                "healing_in_progress": a.auto_healed and not a.agent_response,
+                "heal_complete": a.heal_complete,
+                "healing_in_progress": a.auto_healed and not a.heal_complete,
                 "agent_response": a.agent_response[:500] if a.agent_response else "",
             }
             for a in self.alerts if not a.resolved
@@ -298,6 +312,8 @@ class HealthMonitor:
                 "timestamp": a.timestamp,
                 "resolved": a.resolved,
                 "auto_healed": a.auto_healed,
+                "heal_complete": a.heal_complete,
+                "healing_in_progress": a.auto_healed and not a.heal_complete,
                 "agent_response": a.agent_response[:500] if a.agent_response else "",
             }
             for a in reversed(self.alerts)  # newest first

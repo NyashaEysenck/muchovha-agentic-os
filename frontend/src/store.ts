@@ -35,6 +35,7 @@ export interface MonitorAlert {
   detail: string
   timestamp: number
   auto_healed?: boolean
+  heal_complete?: boolean
   healing_in_progress?: boolean
   agent_response?: string
 }

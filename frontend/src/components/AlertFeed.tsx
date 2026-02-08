@@ -53,41 +53,38 @@ function AlertCard({ alert, onDismiss, onFix, isAgentBusy }: {
 }) {
   const [expanded, setExpanded] = useState(false)
 
-  const canFix = !alert.auto_healed && !alert.healing_in_progress
+  const isHealing = alert.healing_in_progress === true
+  const isHealed = alert.heal_complete === true || (alert.auto_healed && !!alert.agent_response)
+  const canFix = !alert.auto_healed && !isHealing
   const fixGoal = `Investigate and fix: ${alert.title}. Detail: ${alert.detail}. Category: ${alert.category}, severity: ${alert.severity}.`
 
   return (
-    <div className={`feed-alert feed-alert-${alert.severity}`}>
+    <div className={`feed-alert feed-alert-${alert.severity} ${isHealed ? 'feed-alert-resolved' : ''}`}>
       <div className="feed-alert-main">
-        <div className={`feed-alert-dot ${alert.severity}`} />
+        <div className={`feed-alert-dot ${isHealed ? 'healed' : alert.severity}`} />
         <div className="feed-alert-body">
           <span className="feed-alert-title">{alert.title}</span>
           <span className="feed-alert-detail">{alert.detail}</span>
 
-          {/* Healing in progress */}
-          {alert.healing_in_progress && (
+          {/* State 1: Agent is actively working on this */}
+          {isHealing && (
             <span className="feed-alert-healing">
               <Loader2 size={9} className="spin" /> Agent diagnosing...
             </span>
           )}
 
-          {/* Healed with response */}
-          {alert.auto_healed && alert.agent_response && (
-            <button className="feed-alert-healed-btn" onClick={() => setExpanded(!expanded)}>
-              <Wrench size={9} />
-              <span>Fixed</span>
-              {expanded ? <ChevronDown size={9} /> : <ChevronRight size={9} />}
-            </button>
+          {/* State 2: Heal complete — show expandable result */}
+          {isHealed && (
+            <>
+              <button className="feed-alert-healed-btn" onClick={() => setExpanded(!expanded)}>
+                <ShieldCheck size={9} />
+                <span>Healed — view actions</span>
+                {expanded ? <ChevronDown size={9} /> : <ChevronRight size={9} />}
+              </button>
+            </>
           )}
 
-          {/* Just healed, no response yet */}
-          {alert.auto_healed && !alert.agent_response && !alert.healing_in_progress && (
-            <span className="feed-alert-healed">
-              <ShieldCheck size={9} /> Fixed
-            </span>
-          )}
-
-          {/* Manual fix button — only when not already healed */}
+          {/* State 3: Not healed, not healing — show manual fix button */}
           {canFix && (
             <button
               className="feed-alert-fix"
@@ -100,15 +97,19 @@ function AlertCard({ alert, onDismiss, onFix, isAgentBusy }: {
             </button>
           )}
         </div>
-        <button className="feed-alert-dismiss" onClick={() => onDismiss(alert.id)}>
+        <button className="feed-alert-dismiss" onClick={() => onDismiss(alert.id)} title="Dismiss alert">
           <X size={11} />
         </button>
       </div>
 
       {/* Expanded agent response */}
-      {expanded && alert.agent_response && (
+      {expanded && isHealed && (
         <div className="feed-alert-response">
-          <pre>{alert.agent_response}</pre>
+          <div className="feed-alert-response-header">
+            <Wrench size={10} />
+            <span>Agent actions taken</span>
+          </div>
+          <pre>{alert.agent_response || '(No output recorded)'}</pre>
         </div>
       )}
     </div>
