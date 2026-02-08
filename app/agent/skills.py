@@ -5,6 +5,7 @@ following the Agent Skills specification (https://agentskills.io).
 Skills are directories containing a SKILL.md file with YAML frontmatter
 (name + description) and optional scripts/, references/, assets/ dirs.
 Uses progressive disclosure: only metadata is loaded at startup.
+FSWatcher integration: watches skill directories for changes and auto-rescans.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -87,7 +89,11 @@ class SkillEngine:
     def __init__(self) -> None:
         self._skills: dict[str, SkillMetadata] = {}
         self._active: dict[str, SkillContext] = {}
+        self._lock = threading.Lock()
+        self._watcher_thread: threading.Thread | None = None
+        self._watcher_stop = threading.Event()
         self._scan_roots()
+        self._start_watcher()
 
     def _scan_roots(self) -> None:
         """Scan configured skill directories for SKILL.md files."""
@@ -142,17 +148,20 @@ class SkillEngine:
 
     def list_skills(self) -> list[SkillMetadata]:
         """Return metadata for all discovered skills."""
-        return list(self._skills.values())
+        with self._lock:
+            return list(self._skills.values())
 
     def get_skill(self, name: str) -> SkillMetadata | None:
-        return self._skills.get(name)
+        with self._lock:
+            return self._skills.get(name)
 
     def activate(self, name: str) -> SkillContext | None:
         """Fully load a skill's instructions and discover its files."""
         if name in self._active:
             return self._active[name]
 
-        meta = self._skills.get(name)
+        with self._lock:
+            meta = self._skills.get(name)
         if not meta:
             logger.warning("Skill not found: %s", name)
             return None
@@ -188,17 +197,18 @@ class SkillEngine:
 
     def to_prompt_xml(self) -> str:
         """Generate <available_skills> XML for injection into the agent's system prompt."""
-        if not self._skills:
-            return ""
+        with self._lock:
+            if not self._skills:
+                return ""
 
-        lines = ["<available_skills>"]
-        for meta in self._skills.values():
-            lines.append(f'  <skill name="{meta.name}">')
-            lines.append(f"    <description>{meta.description}</description>")
-            lines.append(f"    <location>{meta.path / 'SKILL.md'}</location>")
-            lines.append("  </skill>")
-        lines.append("</available_skills>")
-        return "\n".join(lines)
+            lines = ["<available_skills>"]
+            for meta in self._skills.values():
+                lines.append(f'  <skill name="{meta.name}">')
+                lines.append(f"    <description>{meta.description}</description>")
+                lines.append(f"    <location>{meta.path / 'SKILL.md'}</location>")
+                lines.append("  </skill>")
+            lines.append("</available_skills>")
+            return "\n".join(lines)
 
     def active_skills_context(self) -> str:
         """Return the full instructions of all currently active skills."""
@@ -215,8 +225,57 @@ class SkillEngine:
 
     def rescan(self) -> None:
         """Re-scan skill directories (e.g. after FSWatcher detects changes)."""
-        self._skills.clear()
-        self._scan_roots()
+        with self._lock:
+            self._skills.clear()
+            self._scan_roots()
+
+    def _start_watcher(self) -> None:
+        """Start the FSWatcher background thread to monitor skill directories."""
+        try:
+            import agent_kernel  # type: ignore
+        except ImportError:
+            logger.info("agent_kernel not available — skill hot-reload disabled")
+            return
+
+        roots = [
+            config.skills.bundled_dir,
+            config.skills.system_dir,
+            config.skills.user_dir,
+        ]
+        watch_dirs = [r for r in roots if os.path.isdir(r)]
+        if not watch_dirs:
+            return
+
+        def watcher_loop():
+            try:
+                watcher = agent_kernel.FSWatcher()
+                for d in watch_dirs:
+                    watcher.watch(d)
+                    logger.info("FSWatcher watching skill directory: %s", d)
+
+                while not self._watcher_stop.is_set():
+                    events = watcher.poll(1000)  # 1s timeout
+                    if events:
+                        # Filter for SKILL.md changes
+                        relevant = any(
+                            ev.name.endswith(".md") or ev.name == ""
+                            for ev in events
+                        )
+                        if relevant:
+                            logger.info("Skill directory changed, rescanning (%d events)", len(events))
+                            self.rescan()
+            except Exception:
+                logger.warning("FSWatcher thread exited with error", exc_info=True)
+
+        self._watcher_thread = threading.Thread(target=watcher_loop, daemon=True, name="skill-fswatcher")
+        self._watcher_thread.start()
+        logger.info("Skill FSWatcher started")
+
+    def stop_watcher(self) -> None:
+        """Stop the FSWatcher background thread."""
+        self._watcher_stop.set()
+        if self._watcher_thread and self._watcher_thread.is_alive():
+            self._watcher_thread.join(timeout=2)
 
     @staticmethod
     def _list_files(directory: Path) -> list[str]:

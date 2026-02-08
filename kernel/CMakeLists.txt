@@ -13,6 +13,9 @@ add_library(agent_kernel_core STATIC
     src/process.cpp
     src/fs_watcher.cpp
     src/sandbox.cpp
+    src/network.cpp
+    src/cgroup.cpp
+    src/file_utils.cpp
 )
 
 target_include_directories(agent_kernel_core PUBLIC include)

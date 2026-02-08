@@ -9,6 +9,8 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <functional>
+#include <unordered_map>
 #include <cstring>
 #include <cerrno>
 
@@ -124,6 +126,54 @@ ProcessInfo ProcessManager::get_info(pid_t pid) {
 
 bool ProcessManager::send_signal(pid_t pid, int sig) {
     return kill(pid, sig) == 0;
+}
+
+std::vector<ProcessInfo> ProcessManager::children(pid_t parent_pid) {
+    auto all = list_all();
+    std::vector<ProcessInfo> result;
+    for (auto& p : all) {
+        if (p.ppid == parent_pid) {
+            result.push_back(std::move(p));
+        }
+    }
+    return result;
+}
+
+std::vector<ProcessTreeNode> ProcessManager::tree() {
+    auto all = list_all();
+
+    // Build parent->children map
+    std::unordered_map<pid_t, std::vector<size_t>> child_map;
+    std::unordered_map<pid_t, size_t> idx_map;
+    for (size_t i = 0; i < all.size(); ++i) {
+        idx_map[all[i].pid] = i;
+        child_map[all[i].ppid].push_back(i);
+    }
+
+    // DFS from root processes (ppid=0 or ppid not in list)
+    std::vector<ProcessTreeNode> result;
+    result.reserve(all.size());
+
+    std::function<void(pid_t, int)> dfs = [&](pid_t pid, int depth) {
+        auto it = idx_map.find(pid);
+        if (it == idx_map.end()) return;
+        result.push_back({all[it->second], depth});
+        auto cit = child_map.find(pid);
+        if (cit != child_map.end()) {
+            for (size_t ci : cit->second) {
+                dfs(all[ci].pid, depth + 1);
+            }
+        }
+    };
+
+    // Find root processes
+    for (auto& p : all) {
+        if (p.ppid == 0 || idx_map.find(p.ppid) == idx_map.end()) {
+            dfs(p.pid, 0);
+        }
+    }
+
+    return result;
 }
 
 pid_t ProcessManager::spawn(const std::string& command, const ResourceLimits& limits) {

@@ -5,12 +5,15 @@
 #include "agent_kernel/process.h"
 #include "agent_kernel/fs_watcher.h"
 #include "agent_kernel/sandbox.h"
+#include "agent_kernel/network.h"
+#include "agent_kernel/cgroup.h"
+#include "agent_kernel/file_utils.h"
 
 namespace py = pybind11;
 using namespace agent_kernel;
 
 PYBIND11_MODULE(agent_kernel, m) {
-    m.doc() = "AgentOS C++ kernel runtime — process management, filesystem watching, sandboxing, system metrics";
+    m.doc() = "AgentOS C++ kernel runtime — process management, filesystem watching, sandboxing, system metrics, networking, cgroups, file utilities";
 
     // ── Metrics ─────────────────────────────────────────────────────────
 
@@ -55,6 +58,10 @@ PYBIND11_MODULE(agent_kernel, m) {
         .def_readonly("cmdline", &ProcessInfo::cmdline)
         .def_readonly("uid", &ProcessInfo::uid);
 
+    py::class_<ProcessTreeNode>(m, "ProcessTreeNode")
+        .def_readonly("info", &ProcessTreeNode::info)
+        .def_readonly("depth", &ProcessTreeNode::depth);
+
     py::class_<ResourceLimits>(m, "ResourceLimits")
         .def(py::init<>())
         .def_readwrite("max_cpu_seconds", &ResourceLimits::max_cpu_seconds)
@@ -67,7 +74,9 @@ PYBIND11_MODULE(agent_kernel, m) {
         .def_static("list_all", &ProcessManager::list_all)
         .def_static("get_info", &ProcessManager::get_info, py::arg("pid"))
         .def_static("send_signal", &ProcessManager::send_signal, py::arg("pid"), py::arg("signal"))
-        .def_static("spawn", &ProcessManager::spawn, py::arg("command"), py::arg("limits") = ResourceLimits{});
+        .def_static("spawn", &ProcessManager::spawn, py::arg("command"), py::arg("limits") = ResourceLimits{})
+        .def_static("tree", &ProcessManager::tree)
+        .def_static("children", &ProcessManager::children, py::arg("pid"));
 
     // ── Filesystem Watcher ──────────────────────────────────────────────
 
@@ -112,5 +121,67 @@ PYBIND11_MODULE(agent_kernel, m) {
                      py::call_guard<py::gil_scoped_release>())
         .def_static("run_with_timeout", &Sandbox::run_with_timeout,
                      py::arg("command"), py::arg("timeout_seconds"), py::arg("policy") = SandboxPolicy{},
+                     py::call_guard<py::gil_scoped_release>());
+
+    // ── Network Monitor ─────────────────────────────────────────────────
+
+    py::class_<ConnectionInfo>(m, "ConnectionInfo")
+        .def_readonly("protocol", &ConnectionInfo::protocol)
+        .def_readonly("local_addr", &ConnectionInfo::local_addr)
+        .def_readonly("local_port", &ConnectionInfo::local_port)
+        .def_readonly("remote_addr", &ConnectionInfo::remote_addr)
+        .def_readonly("remote_port", &ConnectionInfo::remote_port)
+        .def_readonly("state", &ConnectionInfo::state)
+        .def_readonly("uid", &ConnectionInfo::uid)
+        .def_readonly("inode", &ConnectionInfo::inode);
+
+    py::class_<InterfaceStats>(m, "InterfaceStats")
+        .def_readonly("name", &InterfaceStats::name)
+        .def_readonly("rx_bytes", &InterfaceStats::rx_bytes)
+        .def_readonly("tx_bytes", &InterfaceStats::tx_bytes)
+        .def_readonly("rx_packets", &InterfaceStats::rx_packets)
+        .def_readonly("tx_packets", &InterfaceStats::tx_packets)
+        .def_readonly("rx_errors", &InterfaceStats::rx_errors)
+        .def_readonly("tx_errors", &InterfaceStats::tx_errors)
+        .def_readonly("rx_dropped", &InterfaceStats::rx_dropped)
+        .def_readonly("tx_dropped", &InterfaceStats::tx_dropped);
+
+    py::class_<NetworkMonitor>(m, "NetworkMonitor")
+        .def_static("connections", &NetworkMonitor::connections, py::arg("protocol") = "tcp")
+        .def_static("listening_ports", &NetworkMonitor::listening_ports)
+        .def_static("interfaces", &NetworkMonitor::interfaces);
+
+    // ── Cgroup / Container ──────────────────────────────────────────────
+
+    py::class_<CgroupInfo>(m, "CgroupInfo")
+        .def_readonly("cgroup_version", &CgroupInfo::cgroup_version)
+        .def_readonly("is_containerized", &CgroupInfo::is_containerized)
+        .def_readonly("memory_limit_bytes", &CgroupInfo::memory_limit_bytes)
+        .def_readonly("memory_usage_bytes", &CgroupInfo::memory_usage_bytes)
+        .def_readonly("cpu_quota", &CgroupInfo::cpu_quota)
+        .def_readonly("pids_limit", &CgroupInfo::pids_limit)
+        .def_readonly("pids_current", &CgroupInfo::pids_current);
+
+    py::class_<CgroupManager>(m, "CgroupManager")
+        .def_static("info", &CgroupManager::info)
+        .def_static("is_in_container", &CgroupManager::is_in_container);
+
+    // ── File Utilities ──────────────────────────────────────────────────
+
+    py::class_<FileSearchResult>(m, "FileSearchResult")
+        .def_readonly("path", &FileSearchResult::path)
+        .def_readonly("size", &FileSearchResult::size)
+        .def_readonly("is_dir", &FileSearchResult::is_dir);
+
+    py::class_<FileUtils>(m, "FileUtils")
+        .def_static("search", &FileUtils::search,
+                     py::arg("root"), py::arg("pattern"),
+                     py::arg("max_depth") = 10, py::arg("max_results") = 200,
+                     py::call_guard<py::gil_scoped_release>())
+        .def_static("tail", &FileUtils::tail,
+                     py::arg("path"), py::arg("lines") = 50,
+                     py::call_guard<py::gil_scoped_release>())
+        .def_static("dir_size", &FileUtils::dir_size,
+                     py::arg("path"),
                      py::call_guard<py::gil_scoped_release>());
 }

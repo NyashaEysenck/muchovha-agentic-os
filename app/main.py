@@ -9,8 +9,12 @@ Endpoints:
     GET  /api/skills             → List discovered skills
     POST /api/skills/{name}/activate   → Activate a skill
     POST /api/skills/{name}/deactivate → Deactivate a skill
-    GET  /api/system/metrics     → System metrics
+    GET  /api/thinking           → Get thinking mode status
+    POST /api/thinking/toggle    → Toggle thinking mode on/off
+    GET  /api/system/metrics     → System metrics (CPU, memory, disk)
     GET  /api/system/processes   → Process list
+    GET  /api/system/network     → Network connections + interfaces
+    GET  /api/system/container   → Container/cgroup information
     GET  /api/sessions           → Active agent sessions
     GET  /api/health             → Liveness probe
     /mcp                         → FastMCP server (MCP protocol)
@@ -287,6 +291,62 @@ async def system_processes():
                  "rss_mb": round(p.rss_kb / 1024, 1), "cmdline": p.cmdline[:200]}
                 for p in sorted_procs
             ]
+        })
+    except ImportError:
+        return JSONResponse({"error": "C++ kernel not available"}, status_code=503)
+
+
+# ── Network endpoints ────────────────────────────────────────────────
+
+
+@app.get("/api/system/network")
+async def system_network():
+    try:
+        import agent_kernel  # type: ignore
+        tcp = agent_kernel.NetworkMonitor.connections("tcp")
+        tcp6 = agent_kernel.NetworkMonitor.connections("tcp6")
+        ifaces = agent_kernel.NetworkMonitor.interfaces()
+        listening = agent_kernel.NetworkMonitor.listening_ports()
+        return JSONResponse({
+            "connections": {
+                "tcp": len(tcp),
+                "tcp6": len(tcp6),
+                "established": sum(1 for c in tcp + tcp6 if c.state == "ESTABLISHED"),
+            },
+            "listening": [
+                {"protocol": p.protocol, "address": p.local_addr, "port": p.local_port}
+                for p in listening
+            ],
+            "interfaces": [
+                {"name": i.name, "rx_mb": round(i.rx_bytes / 1e6, 2),
+                 "tx_mb": round(i.tx_bytes / 1e6, 2),
+                 "rx_errors": i.rx_errors, "tx_errors": i.tx_errors}
+                for i in ifaces
+            ],
+        })
+    except ImportError:
+        return JSONResponse({"error": "C++ kernel not available"}, status_code=503)
+
+
+@app.get("/api/system/container")
+async def system_container():
+    try:
+        import agent_kernel  # type: ignore
+        cg = agent_kernel.CgroupManager.info()
+        return JSONResponse({
+            "is_containerized": cg.is_containerized,
+            "cgroup_version": cg.cgroup_version,
+            "memory": {
+                "limit_mb": round(cg.memory_limit_bytes / 1e6, 1) if cg.memory_limit_bytes > 0 else None,
+                "usage_mb": round(cg.memory_usage_bytes / 1e6, 1) if cg.memory_usage_bytes > 0 else None,
+            },
+            "cpu": {
+                "quota_cores": round(cg.cpu_quota, 2) if cg.cpu_quota > 0 else None,
+            },
+            "pids": {
+                "limit": cg.pids_limit if cg.pids_limit > 0 else None,
+                "current": cg.pids_current if cg.pids_current > 0 else None,
+            },
         })
     except ImportError:
         return JSONResponse({"error": "C++ kernel not available"}, status_code=503)

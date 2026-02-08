@@ -27,6 +27,11 @@ struct ResourceLimits {
     int64_t max_processes = 64;     // RLIMIT_NPROC
 };
 
+struct ProcessTreeNode {
+    ProcessInfo info;
+    int depth;
+};
+
 class ProcessManager {
 public:
     /// List all running processes by reading /proc.
@@ -40,6 +45,12 @@ public:
 
     /// Spawn a command with optional resource limits. Returns child PID.
     static pid_t spawn(const std::string& command, const ResourceLimits& limits = {});
+
+    /// Build a process tree: flat list sorted in depth-first order with depth field.
+    static std::vector<ProcessTreeNode> tree();
+
+    /// Get children of a specific PID.
+    static std::vector<ProcessInfo> children(pid_t pid);
 };
 
 } // namespace agent_kernel
