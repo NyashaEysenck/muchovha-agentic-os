@@ -3,6 +3,7 @@ import { useStore, type AgentEvent, type UploadedAttachment } from '../store'
 import {
   Cpu, Send, Loader2, AlertCircle, CheckCircle, Wrench, Brain,
   Paperclip, Mic, MicOff, Camera, X, Image as ImageIcon, Volume2,
+  ShieldAlert, ShieldCheck,
 } from 'lucide-react'
 import { Marked } from 'marked'
 import hljs from 'highlight.js'
@@ -71,6 +72,11 @@ export function AgentPanel() {
   // Thinking mode
   const thinkingEnabled = useStore((s) => s.thinkingEnabled)
   const toggleThinking = useStore((s) => s.toggleThinking)
+
+  // Health monitor alerts
+  const monitorAlerts = useStore((s) => s.monitorAlerts)
+  const dismissAlert = useStore((s) => s.dismissAlert)
+  const autoHealEnabled = useStore((s) => s.autoHealEnabled)
 
   // Audio recording
   const isRecording = useStore((s) => s.isRecording)
@@ -292,6 +298,23 @@ export function AgentPanel() {
           <button className="agent-clear-btn" onClick={clearEvents} title="Clear">Clear</button>
         </div>
       </div>
+
+      {/* Active alerts banner */}
+      {monitorAlerts.length > 0 && (
+        <div className="alerts-banner">
+          {monitorAlerts.map((alert) => (
+            <div key={alert.id} className={`alert-card alert-${alert.severity}`}>
+              <ShieldAlert size={13} className="alert-icon" />
+              <div className="alert-content">
+                <span className="alert-title">{alert.title}</span>
+                <span className="alert-detail">{alert.detail}</span>
+                {alert.auto_healed && <span className="alert-healed"><ShieldCheck size={10} /> Auto-healed</span>}
+              </div>
+              <button className="alert-dismiss" onClick={() => dismissAlert(alert.id)} title="Dismiss"><X size={12} /></button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Events feed */}
       <div className="agent-events" ref={eventsRef}>

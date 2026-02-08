@@ -11,6 +11,11 @@ Endpoints:
     POST /api/skills/{name}/deactivate → Deactivate a skill
     GET  /api/thinking           → Get thinking mode status
     POST /api/thinking/toggle    → Toggle thinking mode on/off
+    GET  /api/monitor/status     → Health monitor status
+    GET  /api/monitor/alerts     → Alert history
+    POST /api/monitor/toggle     → Toggle monitoring on/off
+    POST /api/monitor/autoheal   → Toggle auto-heal on/off
+    POST /api/monitor/dismiss    → Dismiss an alert
     GET  /api/system/metrics     → System metrics (CPU, memory, disk)
     GET  /api/system/processes   → Process list
     GET  /api/system/network     → Network connections + interfaces
@@ -39,6 +44,7 @@ from .agent.loop import AgentLoop, Attachment
 from .agent.tools import ToolRegistry, create_builtin_tools
 from .agent.skills import SkillEngine
 from .config import config
+from .monitor import HealthMonitor
 from .terminal import TerminalManager
 
 load_dotenv()
@@ -55,9 +61,22 @@ for tool in create_builtin_tools():
 skills = SkillEngine()
 agent = AgentLoop(tools, skills)
 terminal_mgr = TerminalManager()
+monitor = HealthMonitor()
 
 # In-memory attachment store (attachment_id → Attachment)
 _uploads: dict[str, Attachment] = {}
+
+# ── Auto-heal callback: runs agent and collects response ─────────────
+
+async def _auto_heal_callback(goal: str) -> str:
+    """Run the agent loop for auto-heal and collect the text response."""
+    parts: list[str] = []
+    async for event in agent.run(goal, session_id="__autoheal__"):
+        if event.type.value == "text":
+            parts.append(event.data.get("text", ""))
+    return "\n".join(parts)
+
+monitor.set_agent_callback(_auto_heal_callback)
 
 # ── FastAPI app ──────────────────────────────────────────────────────────
 
@@ -67,6 +86,12 @@ app = FastAPI(title="AgentOS")
 STATIC_DIR = config.server.static_dir
 if os.path.isdir(os.path.join(STATIC_DIR, "assets")):
     app.mount("/assets", StaticFiles(directory=os.path.join(STATIC_DIR, "assets")), name="assets")
+
+
+@app.on_event("startup")
+async def on_startup():
+    monitor.start()
+    logger.info("HealthMonitor background task started")
 
 
 @app.get("/")
@@ -255,6 +280,53 @@ async def toggle_thinking():
     agent.thinking_enabled = not agent.thinking_enabled
     logger.info("Thinking mode toggled to %s", agent.thinking_enabled)
     return JSONResponse({"enabled": agent.thinking_enabled})
+
+
+# ── Health Monitor endpoints ────────────────────────────────────────────
+
+
+@app.get("/api/monitor/status")
+async def monitor_status():
+    """Get health monitor status and active alerts."""
+    return JSONResponse({
+        **monitor.status,
+        "alerts": monitor.get_active_alerts(),
+    })
+
+
+@app.get("/api/monitor/alerts")
+async def monitor_alerts():
+    """Get full alert history."""
+    return JSONResponse({"alerts": monitor.get_alert_history()})
+
+
+@app.post("/api/monitor/toggle")
+async def monitor_toggle():
+    """Toggle the health monitor on/off."""
+    monitor.enabled = not monitor.enabled
+    logger.info("HealthMonitor toggled to %s", monitor.enabled)
+    return JSONResponse({"enabled": monitor.enabled})
+
+
+@app.post("/api/monitor/autoheal")
+async def monitor_autoheal():
+    """Toggle auto-heal mode on/off."""
+    monitor.auto_heal = not monitor.auto_heal
+    logger.info("Auto-heal toggled to %s", monitor.auto_heal)
+    return JSONResponse({"auto_heal": monitor.auto_heal})
+
+
+class DismissRequest(BaseModel):
+    alert_id: str
+
+
+@app.post("/api/monitor/dismiss")
+async def monitor_dismiss(req: DismissRequest):
+    """Dismiss an alert by ID."""
+    ok = monitor.dismiss_alert(req.alert_id)
+    if not ok:
+        return JSONResponse({"error": "Alert not found"}, status_code=404)
+    return JSONResponse({"dismissed": True})
 
 
 # ── System endpoints ────────────────────────────────────────────────────

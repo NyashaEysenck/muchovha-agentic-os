@@ -5,7 +5,7 @@ import { AgentPanel } from './components/AgentPanel'
 import { SkillDrawer } from './components/SkillDrawer'
 import { SystemBar } from './components/SystemBar'
 import { Toasts } from './components/Toasts'
-import { Terminal, Sun, Moon, Cpu, Puzzle, PanelRightOpen, PanelRightClose } from 'lucide-react'
+import { Terminal, Sun, Moon, Cpu, Puzzle, PanelRightOpen, PanelRightClose, ShieldCheck, ShieldAlert, ShieldOff } from 'lucide-react'
 import './theme.css'
 import './App.css'
 
@@ -19,6 +19,11 @@ export function App() {
   const setSkills = useStore((s) => s.setSkills)
   const setMetrics = useStore((s) => s.setMetrics)
   const setThinkingEnabled = useStore((s) => s.setThinkingEnabled)
+  const setMonitorState = useStore((s) => s.setMonitorState)
+  const monitorStatus = useStore((s) => s.monitorStatus)
+  const autoHealEnabled = useStore((s) => s.autoHealEnabled)
+  const toggleAutoHeal = useStore((s) => s.toggleAutoHeal)
+  const monitorAlerts = useStore((s) => s.monitorAlerts)
 
   // Fetch skills + thinking state on mount
   useEffect(() => {
@@ -35,6 +40,16 @@ export function App() {
     const iv = setInterval(poll, 5000)
     return () => clearInterval(iv)
   }, [setMetrics])
+
+  // Poll health monitor every 5s
+  useEffect(() => {
+    const poll = () => fetch('/api/monitor/status').then((r) => r.json()).then((d) => {
+      if (!d.error) setMonitorState({ enabled: d.enabled, auto_heal: d.auto_heal, status: d.status, alerts: d.alerts || [] })
+    }).catch(() => {})
+    poll()
+    const iv = setInterval(poll, 5000)
+    return () => clearInterval(iv)
+  }, [setMonitorState])
 
   // ── Resize handle ──────────────────────────────────────────────────
   const [splitPct, setSplitPct] = useState(55)
@@ -86,6 +101,15 @@ export function App() {
           <button className="header-btn" onClick={toggleSkillDrawer} title="Skills">
             <Puzzle size={14} />
             <span>Skills</span>
+          </button>
+          <button
+            className={`header-btn ${autoHealEnabled ? 'header-btn-active' : ''} ${monitorStatus === 'critical' ? 'header-btn-danger' : monitorStatus === 'warning' ? 'header-btn-warn' : ''}`}
+            onClick={toggleAutoHeal}
+            title={autoHealEnabled ? 'Self-Heal ON — click to disable' : 'Self-Heal OFF — click to enable'}
+          >
+            {monitorStatus === 'critical' ? <ShieldAlert size={14} /> : autoHealEnabled ? <ShieldCheck size={14} /> : <ShieldOff size={14} />}
+            <span>Self-Heal{autoHealEnabled ? '' : ' Off'}</span>
+            {monitorAlerts.length > 0 && <span className="alert-count">{monitorAlerts.length}</span>}
           </button>
         </div>
 

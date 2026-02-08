@@ -27,6 +27,16 @@ export interface SystemMetrics {
   disk: { total_gb: number; used_gb: number; available_gb: number; usage_percent: number }
 }
 
+export interface MonitorAlert {
+  id: string
+  severity: 'info' | 'warning' | 'critical'
+  category: string
+  title: string
+  detail: string
+  timestamp: number
+  auto_healed?: boolean
+}
+
 export interface Toast {
   id: string
   message: string
@@ -90,6 +100,16 @@ interface AppState {
   // System metrics
   metrics: SystemMetrics | null
   setMetrics: (m: SystemMetrics) => void
+
+  // Health monitor
+  monitorEnabled: boolean
+  autoHealEnabled: boolean
+  monitorAlerts: MonitorAlert[]
+  monitorStatus: string
+  setMonitorState: (s: { enabled?: boolean; auto_heal?: boolean; status?: string; alerts?: MonitorAlert[] }) => void
+  toggleMonitor: () => Promise<void>
+  toggleAutoHeal: () => Promise<void>
+  dismissAlert: (id: string) => Promise<void>
 
   // Terminal
   terminalFontSize: number
@@ -164,6 +184,46 @@ export const useStore = create<AppState>((set, get) => ({
   // ── System metrics ────────────────────────────────────────────────
   metrics: null,
   setMetrics: (metrics) => set({ metrics }),
+
+  // ── Health monitor ────────────────────────────────────────────────
+  monitorEnabled: true,
+  autoHealEnabled: false,
+  monitorAlerts: [],
+  monitorStatus: 'ok',
+  setMonitorState: (s) => set((prev) => ({
+    monitorEnabled: s.enabled ?? prev.monitorEnabled,
+    autoHealEnabled: s.auto_heal ?? prev.autoHealEnabled,
+    monitorStatus: s.status ?? prev.monitorStatus,
+    monitorAlerts: s.alerts ?? prev.monitorAlerts,
+  })),
+  toggleMonitor: async () => {
+    try {
+      const res = await fetch('/api/monitor/toggle', { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        set({ monitorEnabled: data.enabled })
+      }
+    } catch {}
+  },
+  toggleAutoHeal: async () => {
+    try {
+      const res = await fetch('/api/monitor/autoheal', { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        set({ autoHealEnabled: data.auto_heal })
+      }
+    } catch {}
+  },
+  dismissAlert: async (id: string) => {
+    try {
+      await fetch('/api/monitor/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alert_id: id }),
+      })
+      set((s) => ({ monitorAlerts: s.monitorAlerts.filter((a) => a.id !== id) }))
+    } catch {}
+  },
 
   // ── Terminal ──────────────────────────────────────────────────────
   terminalFontSize: 14,
