@@ -228,6 +228,20 @@ async def agent_run(req: AgentRequest):
     )
 
 
+# ── Agent stop endpoint ──────────────────────────────────────────────
+
+
+class StopRequest(BaseModel):
+    session_id: str = "default"
+
+
+@app.post("/api/agent/stop")
+async def agent_stop(req: StopRequest):
+    """Cancel a running agent loop."""
+    agent.cancel(req.session_id)
+    return JSONResponse({"stopped": True, "session_id": req.session_id})
+
+
 # ── Skills endpoints ────────────────────────────────────────────────────
 
 

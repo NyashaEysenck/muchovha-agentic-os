@@ -168,7 +168,13 @@ class AgentLoop:
         self._tools = tools
         self._skills = skills
         self._sessions: dict[str, Session] = {}
+        self._cancelled: set[str] = set()  # session IDs with pending cancel
         self.thinking_enabled: bool = True
+
+    def cancel(self, session_id: str) -> None:
+        """Request cancellation for a running session."""
+        self._cancelled.add(session_id)
+        logger.info("Cancel requested for session %s", session_id)
 
     def get_session(self, session_id: str) -> Session:
         if session_id not in self._sessions:
@@ -217,6 +223,13 @@ class AgentLoop:
         max_iter = config.ai.max_agent_iterations
 
         while iterations < max_iter:
+            # ── Check for cancellation ────────────────────────────
+            if session_id in self._cancelled:
+                self._cancelled.discard(session_id)
+                yield AgentEvent(EventType.TEXT, {"text": "Agent stopped by user."})
+                yield AgentEvent(EventType.DONE, {})
+                return
+
             iterations += 1
 
             # Build system prompt with skill discovery
@@ -292,6 +305,13 @@ class AgentLoop:
                         "tool": call_name,
                         "args": call_args,
                     })
+
+                    # Check cancel before running tool
+                    if session_id in self._cancelled:
+                        self._cancelled.discard(session_id)
+                        yield AgentEvent(EventType.TEXT, {"text": "Agent stopped by user."})
+                        yield AgentEvent(EventType.DONE, {})
+                        return
 
                     # Execute the tool
                     result_str = await self._tools.execute(call_name, call_args)

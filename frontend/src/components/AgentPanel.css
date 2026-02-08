@@ -468,6 +468,24 @@
 .agent-send-btn:hover:not(:disabled) { background: var(--accent-hover); }
 .agent-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+.agent-stop-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-s);
+  background: rgb(239, 68, 68);
+  color: white;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+  animation: fadeIn 0.15s ease;
+}
+.agent-stop-btn:hover { background: rgb(220, 50, 50); }
+
 /* ── Drag overlay ────────────────────────────────────────────────────── */
 
 .drag-overlay {

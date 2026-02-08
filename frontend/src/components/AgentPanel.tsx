@@ -3,7 +3,7 @@ import { useStore, type AgentEvent, type UploadedAttachment } from '../store'
 import {
   Cpu, Send, Loader2, AlertCircle, CheckCircle, Wrench, Brain,
   Paperclip, Mic, MicOff, Camera, X, Image as ImageIcon, Volume2,
-  ShieldAlert, ShieldCheck,
+  ShieldAlert, ShieldCheck, Square,
 } from 'lucide-react'
 import { Marked } from 'marked'
 import hljs from 'highlight.js'
@@ -193,11 +193,30 @@ export function AgentPanel() {
   }, [addAttachment, addToast])
 
   // ── Run agent ─────────────────────────────────────────────────────
+  const abortRef = useRef<AbortController | null>(null)
+
+  const stopAgent = useCallback(async () => {
+    // Abort the SSE stream client-side
+    abortRef.current?.abort()
+    abortRef.current = null
+    // Tell the backend to cancel the loop
+    try {
+      await fetch('/api/agent/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId }),
+      })
+    } catch {}
+  }, [sessionId])
+
   const runAgent = useCallback(async (goal?: string) => {
     const msg = goal || input.trim()
     if (!msg || isRunning) return
     setInput('')
     setRunning(true)
+
+    const controller = new AbortController()
+    abortRef.current = controller
 
     // Gather attachment IDs and clear
     const currentAttachments = useStore.getState().attachments
@@ -228,6 +247,7 @@ export function AgentPanel() {
           session_id: sessionId,
           attachment_ids: attachmentIds,
         }),
+        signal: controller.signal,
       })
 
       if (!res.ok) {
@@ -263,8 +283,13 @@ export function AgentPanel() {
         }
       }
     } catch (err: any) {
-      addEvent({ id: `err-${Date.now()}`, type: 'error', data: { error: err.message }, timestamp: Date.now() })
+      if (err.name === 'AbortError') {
+        addEvent({ id: `stop-${Date.now()}`, type: 'status', data: { status: 'Agent stopped.' }, timestamp: Date.now() })
+      } else {
+        addEvent({ id: `err-${Date.now()}`, type: 'error', data: { error: err.message }, timestamp: Date.now() })
+      }
     } finally {
+      abortRef.current = null
       setRunning(false)
     }
   }, [input, isRunning, sessionId, addEvent, setInput, setRunning, addToast, clearAttachments])
@@ -408,9 +433,15 @@ export function AgentPanel() {
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runAgent() } }}
           disabled={isRunning}
         />
-        <button className="agent-send-btn" onClick={() => runAgent()} disabled={isRunning || (!input.trim() && attachments.length === 0)} title="Run">
-          {isRunning ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
-        </button>
+        {isRunning ? (
+          <button className="agent-stop-btn" onClick={stopAgent} title="Stop agent">
+            <Square size={12} />
+          </button>
+        ) : (
+          <button className="agent-send-btn" onClick={() => runAgent()} disabled={!input.trim() && attachments.length === 0} title="Run">
+            <Send size={14} />
+          </button>
+        )}
       </div>
 
       {/* Drag overlay */}
