@@ -29,13 +29,13 @@ export function App() {
     fetch('/api/thinking').then((r) => r.json()).then((d) => setThinkingEnabled(d.enabled)).catch(() => {})
   }, [setSkills, setThinkingEnabled])
 
-  // Poll system metrics every 3s
+  // Poll system metrics every 8s
   useEffect(() => {
     const poll = () => fetch('/api/system/metrics').then((r) => r.json()).then((d) => {
       if (!d.error) setMetrics(d)
     }).catch(() => {})
     poll()
-    const iv = setInterval(poll, 3000)
+    const iv = setInterval(poll, 8000)
     return () => clearInterval(iv)
   }, [setMetrics])
 
@@ -53,7 +53,7 @@ export function App() {
   const glowClass = monitorStatus === 'critical' ? 'glow-danger' : monitorStatus === 'warning' ? 'glow-warn' : ''
 
   return (
-    <div className={`app ${glowClass}`} data-theme={theme}>
+    <div className={`app ${glowClass}`}>
       {/* ── Top bar ──────────────────────────────────────────────────── */}
       <header className="app-header">
         <div className="header-left">

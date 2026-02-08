@@ -82,11 +82,12 @@ std::string FileUtils::tail(const std::string& path, int lines) {
     auto size = f.tellg();
     if (size == std::streampos(0)) return "";
 
-    // Read backwards to find enough newlines
+    // Read backwards to find enough newlines, collecting chunks in a vector
+    // to avoid O(n²) string prepend.
     int newline_count = 0;
     std::streampos pos = size;
     const std::streamsize chunk_size = 4096;
-    std::string result;
+    std::vector<std::string> chunks;
 
     while (pos > std::streampos(0) && newline_count <= lines) {
         auto read_size = std::min(static_cast<std::streamsize>(pos), chunk_size);
@@ -95,11 +96,17 @@ std::string FileUtils::tail(const std::string& path, int lines) {
 
         std::string chunk(static_cast<size_t>(read_size), '\0');
         f.read(&chunk[0], read_size);
-        result = chunk + result;
 
         for (char c : chunk) {
             if (c == '\n') ++newline_count;
         }
+        chunks.push_back(std::move(chunk));
+    }
+
+    // Concatenate in correct order (chunks were collected in reverse)
+    std::string result;
+    for (auto it = chunks.rbegin(); it != chunks.rend(); ++it) {
+        result += *it;
     }
 
     // Trim to last N lines
@@ -124,7 +131,9 @@ std::string FileUtils::tail(const std::string& path, int lines) {
     return result;
 }
 
-uint64_t FileUtils::dir_size(const std::string& path) {
+namespace {
+uint64_t dir_size_impl(const std::string& path, int depth, int max_depth) {
+    if (depth > max_depth) return 0;
     uint64_t total = 0;
     DIR* d = opendir(path.c_str());
     if (!d) return 0;
@@ -140,13 +149,18 @@ uint64_t FileUtils::dir_size(const std::string& path) {
         if (lstat(full.c_str(), &st) != 0) continue;
 
         if (S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode)) {
-            total += dir_size(full);
+            total += dir_size_impl(full, depth + 1, max_depth);
         } else if (S_ISREG(st.st_mode)) {
             total += static_cast<uint64_t>(st.st_size);
         }
     }
     closedir(d);
     return total;
+}
+} // anonymous namespace
+
+uint64_t FileUtils::dir_size(const std::string& path) {
+    return dir_size_impl(path, 0, 20);  // safety cap at 20 levels
 }
 
 } // namespace agent_kernel

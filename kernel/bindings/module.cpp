@@ -41,9 +41,9 @@ PYBIND11_MODULE(agent_kernel, m) {
 
     py::class_<SystemMetrics>(m, "SystemMetrics")
         .def_static("cpu", &SystemMetrics::cpu, py::call_guard<py::gil_scoped_release>())
-        .def_static("memory", &SystemMetrics::memory)
-        .def_static("disk", &SystemMetrics::disk, py::arg("path") = "/")
-        .def_static("all_disks", &SystemMetrics::all_disks);
+        .def_static("memory", &SystemMetrics::memory, py::call_guard<py::gil_scoped_release>())
+        .def_static("disk", &SystemMetrics::disk, py::arg("path") = "/", py::call_guard<py::gil_scoped_release>())
+        .def_static("all_disks", &SystemMetrics::all_disks, py::call_guard<py::gil_scoped_release>());
 
     // ── Process Management ──────────────────────────────────────────────
 
@@ -71,12 +71,13 @@ PYBIND11_MODULE(agent_kernel, m) {
         .def_readwrite("max_processes", &ResourceLimits::max_processes);
 
     py::class_<ProcessManager>(m, "ProcessManager")
-        .def_static("list_all", &ProcessManager::list_all)
-        .def_static("get_info", &ProcessManager::get_info, py::arg("pid"))
+        .def_static("list_all", &ProcessManager::list_all, py::call_guard<py::gil_scoped_release>())
+        .def_static("get_info", &ProcessManager::get_info, py::arg("pid"), py::call_guard<py::gil_scoped_release>())
         .def_static("send_signal", &ProcessManager::send_signal, py::arg("pid"), py::arg("signal"))
-        .def_static("spawn", &ProcessManager::spawn, py::arg("command"), py::arg("limits") = ResourceLimits{})
-        .def_static("tree", &ProcessManager::tree)
-        .def_static("children", &ProcessManager::children, py::arg("pid"));
+        .def_static("spawn", &ProcessManager::spawn, py::arg("command"), py::arg("limits") = ResourceLimits{},
+                     py::call_guard<py::gil_scoped_release>())
+        .def_static("tree", &ProcessManager::tree, py::call_guard<py::gil_scoped_release>())
+        .def_static("children", &ProcessManager::children, py::arg("pid"), py::call_guard<py::gil_scoped_release>());
 
     // ── Filesystem Watcher ──────────────────────────────────────────────
 
@@ -147,9 +148,12 @@ PYBIND11_MODULE(agent_kernel, m) {
         .def_readonly("tx_dropped", &InterfaceStats::tx_dropped);
 
     py::class_<NetworkMonitor>(m, "NetworkMonitor")
-        .def_static("connections", &NetworkMonitor::connections, py::arg("protocol") = "tcp")
-        .def_static("listening_ports", &NetworkMonitor::listening_ports)
-        .def_static("interfaces", &NetworkMonitor::interfaces);
+        .def_static("connections", &NetworkMonitor::connections, py::arg("protocol") = "tcp",
+                     py::call_guard<py::gil_scoped_release>())
+        .def_static("listening_ports", &NetworkMonitor::listening_ports,
+                     py::call_guard<py::gil_scoped_release>())
+        .def_static("interfaces", &NetworkMonitor::interfaces,
+                     py::call_guard<py::gil_scoped_release>());
 
     // ── Cgroup / Container ──────────────────────────────────────────────
 
@@ -163,8 +167,8 @@ PYBIND11_MODULE(agent_kernel, m) {
         .def_readonly("pids_current", &CgroupInfo::pids_current);
 
     py::class_<CgroupManager>(m, "CgroupManager")
-        .def_static("info", &CgroupManager::info)
-        .def_static("is_in_container", &CgroupManager::is_in_container);
+        .def_static("info", &CgroupManager::info, py::call_guard<py::gil_scoped_release>())
+        .def_static("is_in_container", &CgroupManager::is_in_container, py::call_guard<py::gil_scoped_release>());
 
     // ── File Utilities ──────────────────────────────────────────────────
 

@@ -17,6 +17,12 @@ from typing import Any, Callable, Awaitable
 
 logger = logging.getLogger(__name__)
 
+# Import kernel once at module level — avoids repeated try/except in every handler
+try:
+    import agent_kernel  # type: ignore
+except ImportError:
+    agent_kernel = None  # type: ignore
+
 
 @dataclass(frozen=True)
 class ToolParam:
@@ -102,43 +108,42 @@ class ToolRegistry:
 
 async def _execute_command(command: str, timeout: int = 30) -> str:
     """Execute a shell command using the C++ sandbox (with resource limits)."""
-    try:
-        import agent_kernel  # type: ignore
+    if agent_kernel is not None:
+        try:
+            policy = agent_kernel.SandboxPolicy()
+            policy.working_dir = "/home/agent"
+            policy.drop_privileges = False  # already running as agent user
+            policy.limits.max_memory_bytes = 512 * 1024 * 1024   # 512 MB
+            policy.limits.max_file_size = 100 * 1024 * 1024      # 100 MB
+            policy.limits.max_open_files = 256
+            policy.limits.max_processes = 64
 
-        policy = agent_kernel.SandboxPolicy()
-        policy.working_dir = "/home/agent"
-        policy.drop_privileges = False  # already running as agent user
-        policy.limits.max_memory_bytes = 512 * 1024 * 1024   # 512 MB
-        policy.limits.max_file_size = 100 * 1024 * 1024      # 100 MB
-        policy.limits.max_open_files = 256
-        policy.limits.max_processes = 64
+            loop = asyncio.get_running_loop()
+            if timeout > 0:
+                result = await loop.run_in_executor(
+                    None, lambda: agent_kernel.Sandbox.run_with_timeout(command, timeout, policy)
+                )
+            else:
+                result = await loop.run_in_executor(
+                    None, lambda: agent_kernel.Sandbox.run(command, policy)
+                )
 
-        loop = asyncio.get_running_loop()
-        if timeout > 0:
-            result = await loop.run_in_executor(
-                None, lambda: agent_kernel.Sandbox.run_with_timeout(command, timeout, policy)
-            )
-        else:
-            result = await loop.run_in_executor(
-                None, lambda: agent_kernel.Sandbox.run(command, policy)
-            )
+            output = result.stdout_output
+            if result.stderr_output:
+                output += "\n" + result.stderr_output
 
-        output = result.stdout_output
-        if result.stderr_output:
-            output += "\n" + result.stderr_output
-
-        resp: dict[str, Any] = {
-            "exit_code": result.exit_code,
-            "output": output.strip()[:8000],
-        }
-        if result.timed_out:
-            resp["timed_out"] = True
-            resp["error"] = f"Command timed out after {timeout}s"
-        return json.dumps(resp)
-
-    except ImportError:
+            resp: dict[str, Any] = {
+                "exit_code": result.exit_code,
+                "output": output.strip()[:8000],
+            }
+            if result.timed_out:
+                resp["timed_out"] = True
+                resp["error"] = f"Command timed out after {timeout}s"
+            return json.dumps(resp)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+    else:
         # Fallback: pure-Python subprocess if C++ kernel not available
-        logger.debug("agent_kernel not available, falling back to asyncio subprocess")
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
@@ -159,15 +164,15 @@ async def _execute_command(command: str, timeout: int = 30) -> str:
         except Exception as e:
             return json.dumps({"error": str(e)})
 
-    except Exception as e:
-        return json.dumps({"error": str(e)})
-
 
 async def _read_file(path: str) -> str:
     """Read a file and return its contents."""
-    try:
+    loop = asyncio.get_running_loop()
+    def _do() -> str:
         with open(path, "r", errors="replace") as f:
-            content = f.read(100_000)
+            return f.read(100_000)
+    try:
+        content = await loop.run_in_executor(None, _do)
         return json.dumps({"path": path, "content": content})
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -175,24 +180,32 @@ async def _read_file(path: str) -> str:
 
 async def _write_file(path: str, content: str) -> str:
     """Write content to a file."""
-    try:
+    loop = asyncio.get_running_loop()
+    def _do() -> int:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-        return json.dumps({"path": path, "bytes_written": len(content)})
+        return len(content)
+    try:
+        n = await loop.run_in_executor(None, _do)
+        return json.dumps({"path": path, "bytes_written": n})
     except Exception as e:
         return json.dumps({"error": str(e)})
 
 
 async def _list_directory(path: str = ".") -> str:
     """List files and directories at the given path."""
-    try:
+    loop = asyncio.get_running_loop()
+    def _do() -> list[dict]:
         entries = []
         for entry in sorted(os.listdir(path)):
             full = os.path.join(path, entry)
             is_dir = os.path.isdir(full)
             size = os.path.getsize(full) if not is_dir else 0
             entries.append({"name": entry, "is_dir": is_dir, "size": size})
+        return entries
+    try:
+        entries = await loop.run_in_executor(None, _do)
         return json.dumps({"path": path, "entries": entries})
     except Exception as e:
         return json.dumps({"error": str(e)})
@@ -200,21 +213,20 @@ async def _list_directory(path: str = ".") -> str:
 
 async def _search_files(pattern: str, path: str = "/home/agent") -> str:
     """Search for files matching a glob pattern using the C++ kernel."""
-    try:
-        import agent_kernel  # type: ignore
-
-        loop = asyncio.get_running_loop()
-        results = await loop.run_in_executor(
-            None, lambda: agent_kernel.FileUtils.search(path, pattern, 10, 100)
-        )
-        matches = [
-            {"path": r.path, "size": r.size, "is_dir": r.is_dir}
-            for r in results
-        ]
-        return json.dumps({"pattern": pattern, "root": path, "matches": matches})
-
-    except ImportError:
-        # Fallback to find command
+    if agent_kernel is not None:
+        try:
+            loop = asyncio.get_running_loop()
+            results = await loop.run_in_executor(
+                None, lambda: agent_kernel.FileUtils.search(path, pattern, 10, 100)
+            )
+            matches = [
+                {"path": r.path, "size": r.size, "is_dir": r.is_dir}
+                for r in results
+            ]
+            return json.dumps({"pattern": pattern, "root": path, "matches": matches})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+    else:
         try:
             proc = await asyncio.create_subprocess_exec(
                 "find", path, "-maxdepth", "5", "-name", pattern, "-type", "f",
@@ -229,11 +241,15 @@ async def _search_files(pattern: str, path: str = "/home/agent") -> str:
 
 async def _system_info() -> str:
     """Get system metrics (CPU, memory, disk) + container info."""
+    if agent_kernel is None:
+        return json.dumps({"error": "agent_kernel not available"})
     try:
-        import agent_kernel  # type: ignore
-        cpu = agent_kernel.SystemMetrics.cpu()
-        mem = agent_kernel.SystemMetrics.memory()
-        disk = agent_kernel.SystemMetrics.disk("/")
+        loop = asyncio.get_running_loop()
+        cpu, mem, disk = await asyncio.gather(
+            loop.run_in_executor(None, agent_kernel.SystemMetrics.cpu),
+            loop.run_in_executor(None, agent_kernel.SystemMetrics.memory),
+            loop.run_in_executor(None, lambda: agent_kernel.SystemMetrics.disk("/")),
+        )
 
         result: dict[str, Any] = {
             "cpu": {"usage_percent": round(cpu.usage_percent, 1), "cores": cpu.core_count,
@@ -245,9 +261,8 @@ async def _system_info() -> str:
                      "usage_percent": round(disk.usage_percent, 1)},
         }
 
-        # Add container info
         try:
-            cg = agent_kernel.CgroupManager.info()
+            cg = await loop.run_in_executor(None, agent_kernel.CgroupManager.info)
             result["container"] = {
                 "is_containerized": cg.is_containerized,
                 "cgroup_version": cg.cgroup_version,
@@ -261,17 +276,17 @@ async def _system_info() -> str:
             pass
 
         return json.dumps(result)
-
-    except ImportError:
-        return json.dumps({"error": "agent_kernel not available, using fallback"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 async def _process_list() -> str:
     """List running processes sorted by memory usage."""
+    if agent_kernel is None:
+        return json.dumps({"error": "agent_kernel not available"})
     try:
-        import agent_kernel  # type: ignore
-        procs = agent_kernel.ProcessManager.list_all()
-        # Return top 30 by memory usage
+        loop = asyncio.get_running_loop()
+        procs = await loop.run_in_executor(None, agent_kernel.ProcessManager.list_all)
         sorted_procs = sorted(procs, key=lambda p: p.rss_kb, reverse=True)[:30]
         return json.dumps({
             "processes": [
@@ -280,19 +295,20 @@ async def _process_list() -> str:
                 for p in sorted_procs
             ]
         })
-    except ImportError:
-        return json.dumps({"error": "agent_kernel not available"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 async def _process_tree() -> str:
     """Show the process tree with parent-child hierarchy."""
+    if agent_kernel is None:
+        return json.dumps({"error": "agent_kernel not available"})
     try:
-        import agent_kernel  # type: ignore
-        nodes = agent_kernel.ProcessManager.tree()
+        loop = asyncio.get_running_loop()
+        nodes = await loop.run_in_executor(None, agent_kernel.ProcessManager.tree)
         tree = []
-        for node in nodes[:80]:  # cap output
+        for node in nodes[:80]:
             p = node.info
-            indent = "  " * node.depth
             tree.append({
                 "pid": p.pid,
                 "ppid": p.ppid,
@@ -303,15 +319,17 @@ async def _process_tree() -> str:
                 "display": f"{indent}{p.name} (pid={p.pid}, rss={round(p.rss_kb / 1024, 1)}MB)",
             })
         return json.dumps({"tree": tree})
-    except ImportError:
-        return json.dumps({"error": "agent_kernel not available"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 async def _network_connections(protocol: str = "tcp") -> str:
     """List network connections (tcp, tcp6, udp, udp6)."""
+    if agent_kernel is None:
+        return json.dumps({"error": "agent_kernel not available"})
     try:
-        import agent_kernel  # type: ignore
-        conns = agent_kernel.NetworkMonitor.connections(protocol)
+        loop = asyncio.get_running_loop()
+        conns = await loop.run_in_executor(None, lambda: agent_kernel.NetworkMonitor.connections(protocol))
         return json.dumps({
             "protocol": protocol,
             "count": len(conns),
@@ -324,15 +342,17 @@ async def _network_connections(protocol: str = "tcp") -> str:
                 for c in conns[:100]
             ],
         })
-    except ImportError:
-        return json.dumps({"error": "agent_kernel not available"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 async def _network_interfaces() -> str:
     """Get network interface statistics."""
+    if agent_kernel is None:
+        return json.dumps({"error": "agent_kernel not available"})
     try:
-        import agent_kernel  # type: ignore
-        ifaces = agent_kernel.NetworkMonitor.interfaces()
+        loop = asyncio.get_running_loop()
+        ifaces = await loop.run_in_executor(None, agent_kernel.NetworkMonitor.interfaces)
         return json.dumps({
             "interfaces": [
                 {
@@ -347,15 +367,17 @@ async def _network_interfaces() -> str:
                 for i in ifaces
             ],
         })
-    except ImportError:
-        return json.dumps({"error": "agent_kernel not available"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 async def _listening_ports() -> str:
     """List all listening ports on the system."""
+    if agent_kernel is None:
+        return json.dumps({"error": "agent_kernel not available"})
     try:
-        import agent_kernel  # type: ignore
-        ports = agent_kernel.NetworkMonitor.listening_ports()
+        loop = asyncio.get_running_loop()
+        ports = await loop.run_in_executor(None, agent_kernel.NetworkMonitor.listening_ports)
         return json.dumps({
             "count": len(ports),
             "ports": [
@@ -367,21 +389,22 @@ async def _listening_ports() -> str:
                 for p in ports
             ],
         })
-    except ImportError:
-        return json.dumps({"error": "agent_kernel not available"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 async def _tail_file(path: str, lines: int = 50) -> str:
     """Read the last N lines of a file (efficient for large log files)."""
-    try:
-        import agent_kernel  # type: ignore
-        loop = asyncio.get_running_loop()
-        content = await loop.run_in_executor(
-            None, lambda: agent_kernel.FileUtils.tail(path, lines)
-        )
-        return json.dumps({"path": path, "lines": lines, "content": content})
-    except ImportError:
-        # Fallback
+    if agent_kernel is not None:
+        try:
+            loop = asyncio.get_running_loop()
+            content = await loop.run_in_executor(
+                None, lambda: agent_kernel.FileUtils.tail(path, lines)
+            )
+            return json.dumps({"path": path, "lines": lines, "content": content})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+    else:
         try:
             proc = await asyncio.create_subprocess_exec(
                 "tail", "-n", str(lines), path,
@@ -391,15 +414,15 @@ async def _tail_file(path: str, lines: int = 50) -> str:
             return json.dumps({"path": path, "lines": lines, "content": stdout.decode(errors="replace")})
         except Exception as e:
             return json.dumps({"error": str(e)})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
 
 
 async def _container_info() -> str:
     """Get container/cgroup information for the current environment."""
+    if agent_kernel is None:
+        return json.dumps({"error": "agent_kernel not available"})
     try:
-        import agent_kernel  # type: ignore
-        cg = agent_kernel.CgroupManager.info()
+        loop = asyncio.get_running_loop()
+        cg = await loop.run_in_executor(None, agent_kernel.CgroupManager.info)
         return json.dumps({
             "is_containerized": cg.is_containerized,
             "cgroup_version": cg.cgroup_version,
@@ -409,8 +432,8 @@ async def _container_info() -> str:
             "pids_limit": cg.pids_limit if cg.pids_limit > 0 else "unlimited",
             "pids_current": cg.pids_current if cg.pids_current > 0 else "unknown",
         })
-    except ImportError:
-        return json.dumps({"error": "agent_kernel not available"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 def create_builtin_tools() -> list[ToolDef]:

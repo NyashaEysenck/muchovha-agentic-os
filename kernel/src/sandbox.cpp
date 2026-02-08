@@ -17,12 +17,12 @@ namespace agent_kernel {
 
 namespace {
 
-void apply_rlimit(int resource, int64_t value) {
-    if (value < 0) return;
+bool apply_rlimit(int resource, int64_t value) {
+    if (value < 0) return true;  // unlimited — nothing to do
     struct rlimit rl;
     rl.rlim_cur = static_cast<rlim_t>(value);
     rl.rlim_max = static_cast<rlim_t>(value);
-    setrlimit(resource, &rl);
+    return setrlimit(resource, &rl) == 0;
 }
 
 std::string read_pipe(int fd) {
@@ -82,23 +82,31 @@ ExecutionResult Sandbox::run_with_timeout(
             }
         }
 
-        // Set environment variables
+        // Set environment variables (use setenv which copies the value)
         for (const auto& env : policy.env) {
-            putenv(const_cast<char*>(env.c_str()));
+            auto eq = env.find('=');
+            if (eq != std::string::npos) {
+                setenv(env.substr(0, eq).c_str(), env.substr(eq + 1).c_str(), 1);
+            }
         }
 
         execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);
         _exit(127);
     }
 
-    // Parent: read output and wait
+    // Parent: drain pipes FIRST (in threads) to avoid deadlock,
+    // then waitpid. If the child writes >64KB, write() blocks waiting
+    // for the parent to read — if we waitpid first, that's a deadlock.
     close(stdout_pipe[1]);
     close(stderr_pipe[1]);
+
+    std::string out_str, err_str;
+    std::thread t_out([&]{ out_str = read_pipe(stdout_pipe[0]); });
+    std::thread t_err([&]{ err_str = read_pipe(stderr_pipe[0]); });
 
     ExecutionResult result{};
     result.timed_out = false;
 
-    // If timeout is set, monitor the child
     if (timeout_seconds > 0) {
         auto deadline = start + std::chrono::seconds(timeout_seconds);
         int status = 0;
@@ -126,10 +134,13 @@ ExecutionResult Sandbox::run_with_timeout(
         result.exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     }
 
-    result.stdout_output = read_pipe(stdout_pipe[0]);
-    result.stderr_output = read_pipe(stderr_pipe[0]);
+    t_out.join();
+    t_err.join();
     close(stdout_pipe[0]);
     close(stderr_pipe[0]);
+
+    result.stdout_output = std::move(out_str);
+    result.stderr_output = std::move(err_str);
 
     auto end = std::chrono::steady_clock::now();
     result.elapsed_seconds = std::chrono::duration<double>(end - start).count();

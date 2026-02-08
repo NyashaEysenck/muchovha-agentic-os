@@ -53,7 +53,8 @@ std::string hex_to_ipv6(const std::string& hex_ip) {
     return buf;
 }
 
-std::vector<ConnectionInfo> parse_proc_net(const std::string& path, const std::string& protocol) {
+std::vector<ConnectionInfo> parse_proc_net(const std::string& path, const std::string& protocol,
+                                           bool listening_only = false) {
     std::vector<ConnectionInfo> conns;
     std::ifstream f(path);
     if (!f.is_open()) return conns;
@@ -92,6 +93,13 @@ std::vector<ConnectionInfo> parse_proc_net(const std::string& path, const std::s
             int state_val = static_cast<int>(std::stoul(state_hex, nullptr, 16));
             ci.state = is_udp ? (state_val == 0x07 ? "CLOSE" : "ESTABLISHED") : tcp_state_name(state_val);
 
+            // Early skip for listening_only mode
+            if (listening_only) {
+                bool is_listen = (state_val == 0x0A);  // TCP LISTEN
+                bool is_udp_bound = is_udp && (ci.remote_port == 0);
+                if (!is_listen && !is_udp_bound) continue;
+            }
+
             // Remaining fields: tx_queue:rx_queue tr:tm->when retrnsmt uid
             std::string skip;
             iss >> skip >> skip >> skip; // tx_queue:rx_queue, tr:tm->when, retrnsmt
@@ -117,14 +125,10 @@ std::vector<ConnectionInfo> NetworkMonitor::connections(const std::string& proto
 
 std::vector<ConnectionInfo> NetworkMonitor::listening_ports() {
     std::vector<ConnectionInfo> result;
-
     for (const auto& proto : {"tcp", "tcp6", "udp", "udp6"}) {
-        auto conns = connections(proto);
+        auto conns = parse_proc_net("/proc/net/" + std::string(proto), proto, true);
         for (auto& c : conns) {
-            if (c.state == "LISTEN" || (c.remote_port == 0 &&
-                (c.protocol == "udp" || c.protocol == "udp6"))) {
-                result.push_back(std::move(c));
-            }
+            result.push_back(std::move(c));
         }
     }
     return result;

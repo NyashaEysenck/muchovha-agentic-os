@@ -4,6 +4,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 
 #include <fstream>
@@ -76,27 +77,22 @@ ProcessInfo parse_proc(pid_t pid) {
     if (!cmdline.empty() && cmdline.back() == ' ') cmdline.pop_back();
     info.cmdline = cmdline.empty() ? ("[" + info.name + "]") : cmdline;
 
-    // /proc/pid/status — Uid line
-    std::ifstream status_f("/proc/" + std::to_string(pid) + "/status");
-    std::string line;
-    while (std::getline(status_f, line)) {
-        if (line.rfind("Uid:", 0) == 0) {
-            std::istringstream iss(line);
-            std::string label;
-            iss >> label >> info.uid;
-            break;
-        }
+    // Get UID via stat() on /proc/pid — avoids opening a third file
+    struct stat proc_stat;
+    std::string proc_path = "/proc/" + std::to_string(pid);
+    if (::stat(proc_path.c_str(), &proc_stat) == 0) {
+        info.uid = proc_stat.st_uid;
     }
 
     return info;
 }
 
-void apply_rlimit(int resource, int64_t value) {
-    if (value < 0) return;
+bool apply_rlimit(int resource, int64_t value) {
+    if (value < 0) return true;  // unlimited
     struct rlimit rl;
     rl.rlim_cur = static_cast<rlim_t>(value);
     rl.rlim_max = static_cast<rlim_t>(value);
-    setrlimit(resource, &rl);
+    return setrlimit(resource, &rl) == 0;
 }
 
 } // anonymous namespace
@@ -157,7 +153,7 @@ std::vector<ProcessTreeNode> ProcessManager::tree() {
     std::function<void(pid_t, int)> dfs = [&](pid_t pid, int depth) {
         auto it = idx_map.find(pid);
         if (it == idx_map.end()) return;
-        result.push_back({all[it->second], depth});
+        result.push_back({std::move(all[it->second]), depth});
         auto cit = child_map.find(pid);
         if (cit != child_map.end()) {
             for (size_t ci : cit->second) {

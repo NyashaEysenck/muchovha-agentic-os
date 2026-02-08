@@ -168,12 +168,14 @@ class HealthMonitor:
         """Run all health checks."""
         loop = asyncio.get_running_loop()
 
-        # Gather data from C++ kernel (all release GIL)
-        cpu = await loop.run_in_executor(None, kernel.SystemMetrics.cpu)
-        mem = kernel.SystemMetrics.memory()
-        disk = kernel.SystemMetrics.disk("/")
-        procs = kernel.ProcessManager.list_all()
-        listeners = kernel.NetworkMonitor.listening_ports()
+        # Gather data from C++ kernel in parallel (all release GIL)
+        cpu, mem, disk, procs, listeners = await asyncio.gather(
+            loop.run_in_executor(None, kernel.SystemMetrics.cpu),
+            loop.run_in_executor(None, kernel.SystemMetrics.memory),
+            loop.run_in_executor(None, lambda: kernel.SystemMetrics.disk("/")),
+            loop.run_in_executor(None, kernel.ProcessManager.list_all),
+            loop.run_in_executor(None, kernel.NetworkMonitor.listening_ports),
+        )
 
         # ── CPU check ────────────────────────────────────────────────
         if cpu.usage_percent >= self.cpu_crit:

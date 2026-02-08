@@ -183,6 +183,7 @@ class AgentLoop:
 
     def remove_session(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
+        self._cancelled.discard(session_id)
 
     def list_sessions(self) -> list[dict]:
         return [
@@ -222,6 +223,31 @@ class AgentLoop:
         iterations = 0
         max_iter = config.ai.max_agent_iterations
 
+        # ── Pre-compute immutable data for this run ──────────────────
+        system_prompt = SYSTEM_PROMPT
+        skills_xml = self._skills.to_prompt_xml()
+        if skills_xml:
+            system_prompt += f"\n\n{skills_xml}"
+
+        gemini_tools = self._tools.to_gemini_tools()
+        gen_config = genai_types.GenerateContentConfig(
+            tools=gemini_tools,
+            temperature=0.3,
+            thinking_config=genai_types.ThinkingConfig(include_thoughts=True) if self.thinking_enabled else None,
+        )
+
+        # Build system prompt prefix once
+        sys_prefix = [
+            genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=system_prompt)],
+            ),
+            genai_types.Content(
+                role="model",
+                parts=[genai_types.Part(text="Ready. I have access to the system tools and skills. What would you like me to do?")],
+            ),
+        ]
+
         while iterations < max_iter:
             # ── Check for cancellation ────────────────────────────
             if session_id in self._cancelled:
@@ -232,28 +258,10 @@ class AgentLoop:
 
             iterations += 1
 
-            # Build system prompt with skill discovery
-            system_prompt = SYSTEM_PROMPT
-            skills_xml = self._skills.to_prompt_xml()
-            if skills_xml:
-                system_prompt += f"\n\n{skills_xml}"
-
             # ── Call Gemini with tools + optional thinking mode ─────────
             try:
-                contents = self._build_contents(system_prompt, session)
-                gen_config = genai_types.GenerateContentConfig(
-                    tools=self._tools.to_gemini_tools(),
-                    temperature=0.3,
-                )
-                if self.thinking_enabled:
-                    gen_config = genai_types.GenerateContentConfig(
-                        tools=self._tools.to_gemini_tools(),
-                        temperature=0.3,
-                        thinking_config=genai_types.ThinkingConfig(
-                            include_thoughts=True,
-                        ),
-                    )
-                response = self._client.models.generate_content(
+                contents = sys_prefix + session.to_contents()
+                response = await self._client.aio.models.generate_content(
                     model=self._model,
                     contents=contents,
                     config=gen_config,
@@ -361,17 +369,3 @@ class AgentLoop:
         yield AgentEvent(EventType.TEXT, {"text": "Reached maximum iterations. Here's what I've done so far."})
         yield AgentEvent(EventType.DONE, {})
 
-    def _build_contents(self, system_prompt: str, session: Session) -> list[Any]:
-        """Assemble the full contents payload with system prompt + history."""
-        contents: list[Any] = [
-            genai_types.Content(
-                role="user",
-                parts=[genai_types.Part(text=system_prompt)],
-            ),
-            genai_types.Content(
-                role="model",
-                parts=[genai_types.Part(text="Ready. I have access to the system tools and skills. What would you like me to do?")],
-            ),
-        ]
-        contents.extend(session.to_contents())
-        return contents

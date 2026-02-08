@@ -22,12 +22,11 @@ async function uploadFile(file: File): Promise<UploadedAttachment | null> {
 
 type AgentStatus = 'idle' | 'thinking' | 'executing' | 'monitoring' | 'healing'
 
-function deriveStatus(isRunning: boolean, events: any[], autoHeal: boolean): AgentStatus {
+function deriveStatus(isRunning: boolean, lastEventType: string | null, autoHeal: boolean): AgentStatus {
   if (!isRunning && !autoHeal) return 'idle'
   if (!isRunning && autoHeal) return 'monitoring'
-  const last = events[events.length - 1]
-  if (last?.type === 'thought') return 'thinking'
-  if (last?.type === 'tool_call') return 'executing'
+  if (lastEventType === 'thought') return 'thinking'
+  if (lastEventType === 'tool_call') return 'executing'
   return 'thinking'
 }
 
@@ -48,7 +47,10 @@ export function CommandBar() {
   const clearEvents = useStore((s) => s.clearAgentEvents)
   const sessionId = useStore((s) => s.sessionId)
   const addToast = useStore((s) => s.addToast)
-  const events = useStore((s) => s.agentEvents)
+  const lastEventType = useStore((s) => {
+    const evts = s.agentEvents
+    return evts.length > 0 ? evts[evts.length - 1].type : null
+  })
   const autoHealEnabled = useStore((s) => s.autoHealEnabled)
   const thinkingEnabled = useStore((s) => s.thinkingEnabled)
   const toggleThinking = useStore((s) => s.toggleThinking)
@@ -69,7 +71,12 @@ export function CommandBar() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  const status = deriveStatus(isRunning, events, autoHealEnabled)
+  const status = deriveStatus(isRunning, lastEventType, autoHealEnabled)
+
+  // Abort any in-flight stream on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort() }
+  }, [])
 
   useEffect(() => {
     if (inputRef.current) {
@@ -203,7 +210,7 @@ export function CommandBar() {
       if (err.name === 'AbortError') addEvent({ id: `stop-${Date.now()}`, type: 'status', data: { status: 'Agent stopped.' }, timestamp: Date.now() })
       else addEvent({ id: `err-${Date.now()}`, type: 'error', data: { error: err.message }, timestamp: Date.now() })
     } finally { abortRef.current = null; setRunning(false) }
-  }, [input, isRunning, sessionId, addEvent, setInput, setRunning, addToast, clearAttachments])
+  }, [input, isRunning, sessionId, addEvent, setInput, setRunning, clearAttachments])
 
   // ── Watch for queued goals (from AlertFeed "Fix" button) ───────────
   const queuedGoal = useStore((s) => s.queuedGoal)

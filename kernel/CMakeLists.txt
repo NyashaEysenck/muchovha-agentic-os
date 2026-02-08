@@ -19,7 +19,11 @@ add_library(agent_kernel_core STATIC
 )
 
 target_include_directories(agent_kernel_core PUBLIC include)
-target_compile_options(agent_kernel_core PRIVATE -Wall -Wextra -O2)
+target_compile_options(agent_kernel_core PRIVATE
+    -Wall -Wextra
+    $<$<CONFIG:Release>:-O3>
+    $<$<CONFIG:Debug>:-O0 -g>
+)
 
 pybind11_add_module(agent_kernel bindings/module.cpp)
 target_link_libraries(agent_kernel PRIVATE agent_kernel_core)

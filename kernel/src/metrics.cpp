@@ -8,6 +8,7 @@
 #include <cstring>
 #include <thread>
 #include <chrono>
+#include <mutex>
 
 namespace agent_kernel {
 
@@ -49,16 +50,28 @@ CpuTicks read_cpu_ticks() {
 CpuInfo SystemMetrics::cpu() {
     CpuInfo info{};
 
-    // Sample CPU ticks over a short interval for usage calculation
-    auto t1 = read_cpu_ticks();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    auto t2 = read_cpu_ticks();
+    // Cache previous tick sample to avoid a blocking sleep on every call.
+    // First call still sleeps 100ms; subsequent calls compute delta vs last.
+    // Mutex guards static state because the GIL is released on this method.
+    static std::mutex mtx;
+    static CpuTicks prev_ticks{};
+    static bool has_prev = false;
 
-    uint64_t total_diff = t2.total() - t1.total();
-    uint64_t active_diff = t2.active() - t1.active();
+    std::lock_guard<std::mutex> lock(mtx);
+
+    if (!has_prev) {
+        prev_ticks = read_cpu_ticks();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    auto t2 = read_cpu_ticks();
+    uint64_t total_diff = t2.total() - prev_ticks.total();
+    uint64_t active_diff = t2.active() - prev_ticks.active();
     info.usage_percent = total_diff > 0
         ? (static_cast<double>(active_diff) / static_cast<double>(total_diff)) * 100.0
         : 0.0;
+    prev_ticks = t2;
+    has_prev = true;
 
     // Core count
     info.core_count = static_cast<int>(std::thread::hardware_concurrency());
@@ -78,11 +91,12 @@ MemInfo SystemMetrics::memory() {
     if (!f.is_open()) throw std::runtime_error("Cannot read /proc/meminfo");
 
     std::string line;
-    while (std::getline(f, line)) {
-        if (line.rfind("MemTotal:", 0) == 0)        info.total_kb = parse_kb(line);
-        else if (line.rfind("MemAvailable:", 0) == 0) info.available_kb = parse_kb(line);
-        else if (line.rfind("SwapTotal:", 0) == 0)   info.swap_total_kb = parse_kb(line);
-        else if (line.rfind("SwapFree:", 0) == 0)    info.swap_used_kb = info.swap_total_kb - parse_kb(line);
+    int found = 0;
+    while (std::getline(f, line) && found < 4) {
+        if (line.rfind("MemTotal:", 0) == 0)          { info.total_kb = parse_kb(line); ++found; }
+        else if (line.rfind("MemAvailable:", 0) == 0)  { info.available_kb = parse_kb(line); ++found; }
+        else if (line.rfind("SwapTotal:", 0) == 0)     { info.swap_total_kb = parse_kb(line); ++found; }
+        else if (line.rfind("SwapFree:", 0) == 0)      { info.swap_used_kb = info.swap_total_kb - parse_kb(line); ++found; }
     }
 
     info.used_kb = info.total_kb - info.available_kb;

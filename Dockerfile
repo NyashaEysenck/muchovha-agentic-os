@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /build
 COPY kernel/ kernel/
 WORKDIR /build/kernel
-RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$(nproc)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Stage 2: Build React frontend
@@ -32,17 +32,15 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# System tools
+# System tools (build tools removed — kernel is pre-built in stage 1)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip python3-dev \
+    python3 python3-pip \
     bash bash-completion \
     curl wget \
     vim nano \
     git \
-    gcc g++ make cmake \
     net-tools iputils-ping iproute2 dnsutils \
     htop tree ncdu \
-    man-db manpages manpages-dev \
     sudo \
     less file \
     zip unzip tar gzip bzip2 \

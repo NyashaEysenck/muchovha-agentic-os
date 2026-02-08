@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, memo } from 'react'
 import { useStore, type AgentEvent } from '../store'
 import {
   Brain, Wrench, CheckCircle, AlertCircle, Cpu, Loader2,
@@ -71,7 +71,7 @@ export function AgentTimeline() {
   )
 }
 
-function TimelineNode({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
+const TimelineNode = memo(function TimelineNode({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
   const { type, data } = event
   const [expanded, setExpanded] = useState(true)
 
@@ -192,4 +192,4 @@ function TimelineNode({ event, isLast }: { event: AgentEvent; isLast: boolean })
   }
 
   return null
-}
+})

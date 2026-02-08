@@ -121,10 +121,6 @@ interface AppState {
   terminalFontSize: number
   setTerminalFontSize: (n: number) => void
 
-  // Panels
-  isAgentPanelOpen: boolean
-  toggleAgentPanel: () => void
-
   // Toasts
   toasts: Toast[]
   addToast: (t: Omit<Toast, 'id'>) => void
@@ -151,7 +147,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   // ── Agent ─────────────────────────────────────────────────────────
   agentEvents: [],
-  addAgentEvent: (e) => set((s) => ({ agentEvents: [...s.agentEvents, { ...e, id: e.id || uid() }] })),
+  addAgentEvent: (e) => set((s) => {
+    const next = [...s.agentEvents, { ...e, id: e.id || uid() }]
+    return { agentEvents: next.length > 500 ? next.slice(-500) : next }
+  }),
   clearAgentEvents: () => set({ agentEvents: [] }),
   isAgentRunning: false,
   setAgentRunning: (isAgentRunning) => set({ isAgentRunning }),
@@ -168,8 +167,15 @@ export const useStore = create<AppState>((set, get) => ({
   // ── Attachments ───────────────────────────────────────────────────
   attachments: [],
   addAttachment: (a) => set((s) => ({ attachments: [...s.attachments, a] })),
-  removeAttachment: (localId) => set((s) => ({ attachments: s.attachments.filter((a) => a.localId !== localId) })),
-  clearAttachments: () => set({ attachments: [] }),
+  removeAttachment: (localId) => set((s) => {
+    const att = s.attachments.find((a) => a.localId === localId)
+    if (att?.previewUrl) URL.revokeObjectURL(att.previewUrl)
+    return { attachments: s.attachments.filter((a) => a.localId !== localId) }
+  }),
+  clearAttachments: () => {
+    get().attachments.forEach((a) => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
+    set({ attachments: [] })
+  },
 
   // ── Audio recording ───────────────────────────────────────────────
   isRecording: false,
@@ -196,19 +202,33 @@ export const useStore = create<AppState>((set, get) => ({
 
   // ── System metrics ────────────────────────────────────────────────
   metrics: null,
-  setMetrics: (metrics) => set({ metrics }),
+  setMetrics: (m) => {
+    const prev = get().metrics
+    if (prev
+      && prev.cpu.usage_percent === m.cpu.usage_percent
+      && prev.memory.usage_percent === m.memory.usage_percent
+      && prev.disk.usage_percent === m.disk.usage_percent) return
+    set({ metrics: m })
+  },
 
   // ── Health monitor ────────────────────────────────────────────────
   monitorEnabled: true,
   autoHealEnabled: false,
   monitorAlerts: [],
   monitorStatus: 'ok',
-  setMonitorState: (s) => set((prev) => ({
-    monitorEnabled: s.enabled ?? prev.monitorEnabled,
-    autoHealEnabled: s.auto_heal ?? prev.autoHealEnabled,
-    monitorStatus: s.status ?? prev.monitorStatus,
-    monitorAlerts: s.alerts ?? prev.monitorAlerts,
-  })),
+  setMonitorState: (s) => {
+    const prev = get()
+    const nextEnabled = s.enabled ?? prev.monitorEnabled
+    const nextAutoHeal = s.auto_heal ?? prev.autoHealEnabled
+    const nextStatus = s.status ?? prev.monitorStatus
+    const nextAlerts = s.alerts ?? prev.monitorAlerts
+    if (nextEnabled === prev.monitorEnabled
+      && nextAutoHeal === prev.autoHealEnabled
+      && nextStatus === prev.monitorStatus
+      && nextAlerts === prev.monitorAlerts) return
+    set({ monitorEnabled: nextEnabled, autoHealEnabled: nextAutoHeal,
+      monitorStatus: nextStatus, monitorAlerts: nextAlerts })
+  },
   toggleMonitor: async () => {
     try {
       const res = await fetch('/api/monitor/toggle', { method: 'POST' })
@@ -241,10 +261,6 @@ export const useStore = create<AppState>((set, get) => ({
   // ── Terminal ──────────────────────────────────────────────────────
   terminalFontSize: 14,
   setTerminalFontSize: (terminalFontSize) => set({ terminalFontSize }),
-
-  // ── Panels ────────────────────────────────────────────────────────
-  isAgentPanelOpen: true,
-  toggleAgentPanel: () => set((s) => ({ isAgentPanelOpen: !s.isAgentPanelOpen })),
 
   // ── Toasts ────────────────────────────────────────────────────────
   toasts: [],

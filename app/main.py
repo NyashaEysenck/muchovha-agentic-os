@@ -28,7 +28,6 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import os
@@ -49,6 +48,12 @@ from .terminal import TerminalManager
 
 load_dotenv()
 
+# Import kernel once at module level
+try:
+    import agent_kernel  # type: ignore
+except ImportError:
+    agent_kernel = None  # type: ignore
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -63,8 +68,17 @@ agent = AgentLoop(tools, skills)
 terminal_mgr = TerminalManager()
 monitor = HealthMonitor()
 
-# In-memory attachment store (attachment_id → Attachment)
-_uploads: dict[str, Attachment] = {}
+# In-memory attachment store (attachment_id → (Attachment, upload_time))
+_uploads: dict[str, tuple[Attachment, float]] = {}
+_UPLOAD_TTL = 300.0  # 5 minutes
+
+def _cleanup_uploads() -> None:
+    """Remove uploads older than TTL."""
+    import time
+    now = time.time()
+    expired = [k for k, (_, ts) in _uploads.items() if now - ts > _UPLOAD_TTL]
+    for k in expired:
+        _uploads.pop(k, None)
 
 # ── Auto-heal callback: runs agent on the default session so user sees it ──
 
@@ -180,12 +194,14 @@ async def upload_file(file: UploadFile = File(...)):
             status_code=413,
         )
 
+    import time as _time
+    _cleanup_uploads()  # evict stale uploads on each new upload
     attachment_id = str(uuid.uuid4())
-    _uploads[attachment_id] = Attachment(
+    _uploads[attachment_id] = (Attachment(
         mime_type=content_type,
         data=data,
         name=file.filename or "upload",
-    )
+    ), _time.time())
 
     logger.info("Uploaded %s (%s, %d bytes) → %s", file.filename, content_type, len(data), attachment_id)
 
@@ -213,9 +229,9 @@ async def agent_run(req: AgentRequest):
     # Resolve attachments from the upload store
     attachments: list[Attachment] = []
     for aid in req.attachment_ids:
-        att = _uploads.pop(aid, None)  # consume on use
-        if att:
-            attachments.append(att)
+        entry = _uploads.pop(aid, None)  # consume on use
+        if entry:
+            attachments.append(entry[0])
 
     async def event_stream():
         async for event in agent.run(req.goal, req.session_id, attachments=attachments or None):
@@ -302,9 +318,22 @@ async def toggle_thinking():
 @app.get("/api/monitor/status")
 async def monitor_status():
     """Get health monitor status and active alerts."""
+    alerts = monitor.get_active_alerts()
+    worst = "ok"
+    for a in alerts:
+        if a["severity"] == "critical":
+            worst = "critical"
+            break
+        if a["severity"] == "warning":
+            worst = "warning"
     return JSONResponse({
-        **monitor.status,
-        "alerts": monitor.get_active_alerts(),
+        "enabled": monitor.enabled,
+        "auto_heal": monitor.auto_heal,
+        "status": worst,
+        "active_alerts": len(alerts),
+        "total_alerts": len(monitor.alerts),
+        "check_interval": monitor.check_interval,
+        "alerts": alerts,
     })
 
 
@@ -348,38 +377,38 @@ async def monitor_dismiss(req: DismissRequest):
 
 @app.get("/api/system/metrics")
 async def system_metrics():
-    try:
-        import agent_kernel  # type: ignore
-        cpu = agent_kernel.SystemMetrics.cpu()
-        mem = agent_kernel.SystemMetrics.memory()
-        disk = agent_kernel.SystemMetrics.disk("/")
-        return JSONResponse({
-            "cpu": {"usage_percent": round(cpu.usage_percent, 1), "cores": cpu.core_count,
-                    "load": [round(cpu.load_1m, 2), round(cpu.load_5m, 2), round(cpu.load_15m, 2)]},
-            "memory": {"total_mb": mem.total_kb // 1024, "used_mb": mem.used_kb // 1024,
-                       "available_mb": mem.available_kb // 1024, "usage_percent": round(mem.usage_percent, 1)},
-            "disk": {"total_gb": round(disk.total_bytes / 1e9, 1), "used_gb": round(disk.used_bytes / 1e9, 1),
-                     "available_gb": round(disk.available_bytes / 1e9, 1), "usage_percent": round(disk.usage_percent, 1)},
-        })
-    except ImportError:
+    if agent_kernel is None:
         return JSONResponse({"error": "C++ kernel not available"}, status_code=503)
+    loop = asyncio.get_running_loop()
+    cpu, mem, disk = await asyncio.gather(
+        loop.run_in_executor(None, agent_kernel.SystemMetrics.cpu),
+        loop.run_in_executor(None, agent_kernel.SystemMetrics.memory),
+        loop.run_in_executor(None, lambda: agent_kernel.SystemMetrics.disk("/")),
+    )
+    return JSONResponse({
+        "cpu": {"usage_percent": round(cpu.usage_percent, 1), "cores": cpu.core_count,
+                "load": [round(cpu.load_1m, 2), round(cpu.load_5m, 2), round(cpu.load_15m, 2)]},
+        "memory": {"total_mb": mem.total_kb // 1024, "used_mb": mem.used_kb // 1024,
+                   "available_mb": mem.available_kb // 1024, "usage_percent": round(mem.usage_percent, 1)},
+        "disk": {"total_gb": round(disk.total_bytes / 1e9, 1), "used_gb": round(disk.used_bytes / 1e9, 1),
+                 "available_gb": round(disk.available_bytes / 1e9, 1), "usage_percent": round(disk.usage_percent, 1)},
+    })
 
 
 @app.get("/api/system/processes")
 async def system_processes():
-    try:
-        import agent_kernel  # type: ignore
-        procs = agent_kernel.ProcessManager.list_all()
-        sorted_procs = sorted(procs, key=lambda p: p.rss_kb, reverse=True)[:50]
-        return JSONResponse({
-            "processes": [
-                {"pid": p.pid, "name": p.name, "state": p.state,
-                 "rss_mb": round(p.rss_kb / 1024, 1), "cmdline": p.cmdline[:200]}
-                for p in sorted_procs
-            ]
-        })
-    except ImportError:
+    if agent_kernel is None:
         return JSONResponse({"error": "C++ kernel not available"}, status_code=503)
+    loop = asyncio.get_running_loop()
+    procs = await loop.run_in_executor(None, agent_kernel.ProcessManager.list_all)
+    sorted_procs = sorted(procs, key=lambda p: p.rss_kb, reverse=True)[:50]
+    return JSONResponse({
+        "processes": [
+            {"pid": p.pid, "name": p.name, "state": p.state,
+             "rss_mb": round(p.rss_kb / 1024, 1), "cmdline": p.cmdline[:200]}
+            for p in sorted_procs
+        ]
+    })
 
 
 # ── Network endpoints ────────────────────────────────────────────────
@@ -387,55 +416,55 @@ async def system_processes():
 
 @app.get("/api/system/network")
 async def system_network():
-    try:
-        import agent_kernel  # type: ignore
-        tcp = agent_kernel.NetworkMonitor.connections("tcp")
-        tcp6 = agent_kernel.NetworkMonitor.connections("tcp6")
-        ifaces = agent_kernel.NetworkMonitor.interfaces()
-        listening = agent_kernel.NetworkMonitor.listening_ports()
-        return JSONResponse({
-            "connections": {
-                "tcp": len(tcp),
-                "tcp6": len(tcp6),
-                "established": sum(1 for c in tcp + tcp6 if c.state == "ESTABLISHED"),
-            },
-            "listening": [
-                {"protocol": p.protocol, "address": p.local_addr, "port": p.local_port}
-                for p in listening
-            ],
-            "interfaces": [
-                {"name": i.name, "rx_mb": round(i.rx_bytes / 1e6, 2),
-                 "tx_mb": round(i.tx_bytes / 1e6, 2),
-                 "rx_errors": i.rx_errors, "tx_errors": i.tx_errors}
-                for i in ifaces
-            ],
-        })
-    except ImportError:
+    if agent_kernel is None:
         return JSONResponse({"error": "C++ kernel not available"}, status_code=503)
+    loop = asyncio.get_running_loop()
+    tcp, tcp6, ifaces, listening = await asyncio.gather(
+        loop.run_in_executor(None, lambda: agent_kernel.NetworkMonitor.connections("tcp")),
+        loop.run_in_executor(None, lambda: agent_kernel.NetworkMonitor.connections("tcp6")),
+        loop.run_in_executor(None, agent_kernel.NetworkMonitor.interfaces),
+        loop.run_in_executor(None, agent_kernel.NetworkMonitor.listening_ports),
+    )
+    return JSONResponse({
+        "connections": {
+            "tcp": len(tcp),
+            "tcp6": len(tcp6),
+            "established": sum(1 for c in tcp + tcp6 if c.state == "ESTABLISHED"),
+        },
+        "listening": [
+            {"protocol": p.protocol, "address": p.local_addr, "port": p.local_port}
+            for p in listening
+        ],
+        "interfaces": [
+            {"name": i.name, "rx_mb": round(i.rx_bytes / 1e6, 2),
+             "tx_mb": round(i.tx_bytes / 1e6, 2),
+             "rx_errors": i.rx_errors, "tx_errors": i.tx_errors}
+            for i in ifaces
+        ],
+    })
 
 
 @app.get("/api/system/container")
 async def system_container():
-    try:
-        import agent_kernel  # type: ignore
-        cg = agent_kernel.CgroupManager.info()
-        return JSONResponse({
-            "is_containerized": cg.is_containerized,
-            "cgroup_version": cg.cgroup_version,
-            "memory": {
-                "limit_mb": round(cg.memory_limit_bytes / 1e6, 1) if cg.memory_limit_bytes > 0 else None,
-                "usage_mb": round(cg.memory_usage_bytes / 1e6, 1) if cg.memory_usage_bytes > 0 else None,
-            },
-            "cpu": {
-                "quota_cores": round(cg.cpu_quota, 2) if cg.cpu_quota > 0 else None,
-            },
-            "pids": {
-                "limit": cg.pids_limit if cg.pids_limit > 0 else None,
-                "current": cg.pids_current if cg.pids_current > 0 else None,
-            },
-        })
-    except ImportError:
+    if agent_kernel is None:
         return JSONResponse({"error": "C++ kernel not available"}, status_code=503)
+    loop = asyncio.get_running_loop()
+    cg = await loop.run_in_executor(None, agent_kernel.CgroupManager.info)
+    return JSONResponse({
+        "is_containerized": cg.is_containerized,
+        "cgroup_version": cg.cgroup_version,
+        "memory": {
+            "limit_mb": round(cg.memory_limit_bytes / 1e6, 1) if cg.memory_limit_bytes > 0 else None,
+            "usage_mb": round(cg.memory_usage_bytes / 1e6, 1) if cg.memory_usage_bytes > 0 else None,
+        },
+        "cpu": {
+            "quota_cores": round(cg.cpu_quota, 2) if cg.cpu_quota > 0 else None,
+        },
+        "pids": {
+            "limit": cg.pids_limit if cg.pids_limit > 0 else None,
+            "current": cg.pids_current if cg.pids_current > 0 else None,
+        },
+    })
 
 
 # ── Session management ──────────────────────────────────────────────────
