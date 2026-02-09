@@ -46,7 +46,7 @@ An autonomous AI agent embedded in a live Linux operating system. MuchovhaOS giv
 
 **Frontend** — React + TypeScript + Zustand SPA. Embeds a full xterm.js terminal, an agent activity timeline with markdown rendering, real-time system gauges, and a health alert feed.
 
-**Skills** — Extensible capability modules (SKILL.md files). Discovered from `/etc/muchovhaos/skills/` and `~/skills/`, hot-reloaded via inotify, injected into the agent's prompt on activation.
+**Skills** — Extensible capability modules (SKILL.md files). Discovered from `skills/` (bundled), `/etc/muchovhaos/skills/`, and `~/skills/`, hot-reloaded via inotify, injected into the agent's prompt on activation.
 
 **Health Monitor** — Background loop checking CPU, memory, disk, zombie processes, and new ports every 5 seconds. Auto-heal mode triggers the agent to diagnose and fix anomalies autonomously.
 
@@ -56,7 +56,7 @@ An autonomous AI agent embedded in a live Linux operating system. MuchovhaOS giv
 2. The frontend POSTs to `/api/agent/run` and opens an SSE stream.
 3. The backend builds the conversation (system prompt + skills context + history + user message) and calls Gemini 3 with function declarations for all 13 tools.
 4. Gemini responds with thinking + tool calls or a final text answer.
-5. Tool calls are executed via the C++ kernel sandbox (resource-limited). Results are fed back to Gemini.
+5. Tool calls are executed (commands via the C++ sandbox, other tools via kernel modules or Python). Results are fed back to Gemini.
 6. Steps 4–5 repeat (up to 15 iterations) until Gemini produces a text-only response.
 7. Every event (status, thought, tool_call, tool_result, text, done) is streamed as SSE to the frontend timeline in real time.
 
