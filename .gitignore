@@ -14,3 +14,5 @@ build/
 *.egg-info/
 coverage/
 htmlcov/
+agentos-key.pem
+muchovhaos-key.pem
