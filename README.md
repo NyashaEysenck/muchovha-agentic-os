@@ -35,7 +35,7 @@ An autonomous AI agent embedded in a live Linux operating system. MuchovhaOS giv
 │                                                         │
 │  ┌─────────────────────────────────────────────┐        │
 │  │  FastMCP Server (/mcp)                      │        │
-│  │  External MCP clients (Claude, Cursor, etc) │        │
+│  │ 
 │  └─────────────────────────────────────────────┘        │
 └─────────────────────────────────────────────────────────┘
 ```

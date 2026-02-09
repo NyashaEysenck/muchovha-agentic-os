@@ -1,8 +1,5 @@
 """
 FastMCP server — exposes MuchovhaOS tools and skills over the Model Context Protocol.
-
-External MCP clients (Claude Desktop, Cursor, VS Code Copilot, other agents)
-can connect and use the OS's terminal, filesystem, and skills.
 """
 
 from __future__ import annotations
