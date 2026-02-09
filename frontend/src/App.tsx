@@ -59,7 +59,7 @@ export function App() {
         <div className="header-left">
           <div className="header-logo">
             <div className="logo-mark"><Cpu size={15} strokeWidth={2.5} /></div>
-            <span className="logo-text">AgentOS</span>
+            <span className="logo-text">MuchovhaOS</span>
           </div>
           <span className={`connection-dot ${connectionStatus}`} title={connectionStatus} />
           {isRunning && <span className="header-running"><Loader2 size={12} className="spin" /> Agent active</span>}

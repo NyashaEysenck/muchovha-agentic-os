@@ -114,7 +114,7 @@ class Session:
 # ── System prompt ────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are **AgentOS** — an autonomous AI agent embedded in a live Linux operating system.
+You are **MuchovhaOS** — an autonomous AI agent embedded in a live Linux operating system.
 
 You have direct access to the system through tools. You can execute commands,
 read and write files, inspect processes, monitor resources, and observe the network.

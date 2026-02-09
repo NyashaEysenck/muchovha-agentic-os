@@ -1,5 +1,5 @@
 """
-FastMCP server — exposes AgentOS tools and skills over the Model Context Protocol.
+FastMCP server — exposes MuchovhaOS tools and skills over the Model Context Protocol.
 
 External MCP clients (Claude Desktop, Cursor, VS Code Copilot, other agents)
 can connect and use the OS's terminal, filesystem, and skills.
@@ -19,7 +19,7 @@ from ..config import config
 
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("AgentOS", description="Agentic Operating System — terminal, filesystem, skills over MCP")
+mcp = FastMCP("MuchovhaOS", description="MuchovhaOS — terminal, filesystem, skills over MCP")
 
 
 # ── Tools ────────────────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ mcp = FastMCP("AgentOS", description="Agentic Operating System — terminal, fil
 
 @mcp.tool
 async def execute_command(command: str, timeout: int = 30) -> str:
-    """Execute a shell command in the AgentOS terminal and return the output."""
+    """Execute a shell command in the MuchovhaOS terminal and return the output."""
     try:
         proc = await asyncio.create_subprocess_shell(
             command,
@@ -126,7 +126,7 @@ async def system_status() -> str:
 
 @mcp.resource("os://hostname")
 async def hostname() -> str:
-    """The hostname of this AgentOS instance."""
+    """The hostname of this MuchovhaOS instance."""
     import socket
     return socket.gethostname()
 

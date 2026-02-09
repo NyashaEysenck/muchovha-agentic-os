@@ -39,7 +39,7 @@ export function SkillDrawer() {
 
         <div className="drawer-body">
           {skills.length === 0 && (
-            <div className="drawer-empty">No skills discovered. Add SKILL.md directories to /etc/agentos/skills/ or ~/skills/</div>
+            <div className="drawer-empty">No skills discovered. Add SKILL.md directories to /etc/muchovhaos/skills/ or ~/skills/</div>
           )}
           {skills.map((skill) => (
             <div key={skill.name} className={`skill-card ${skill.active ? 'active' : ''}`}>

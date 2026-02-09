@@ -1,5 +1,5 @@
 {
-  "name": "agentos-ui",
+  "name": "muchovhaos-ui",
   "private": true,
   "version": "2.0.0",
   "type": "module",
@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@xterm/addon-canvas": "^0.7.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-search": "^0.15.0",
     "@xterm/addon-web-links": "^0.11.0",

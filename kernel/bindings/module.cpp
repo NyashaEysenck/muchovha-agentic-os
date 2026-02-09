@@ -13,7 +13,7 @@ namespace py = pybind11;
 using namespace agent_kernel;
 
 PYBIND11_MODULE(agent_kernel, m) {
-    m.doc() = "AgentOS C++ kernel runtime — process management, filesystem watching, sandboxing, system metrics, networking, cgroups, file utilities";
+    m.doc() = "MuchovhaOS C++ kernel runtime — process management, filesystem watching, sandboxing, system metrics, networking, cgroups, file utilities";
 
     // ── Metrics ─────────────────────────────────────────────────────────
 

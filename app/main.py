@@ -1,5 +1,5 @@
 """
-AgentOS — FastAPI backend with SSE agent streaming, PTY terminal, and FastMCP.
+MuchovhaOS — FastAPI backend with SSE agent streaming, PTY terminal, and FastMCP.
 
 Endpoints:
     GET  /                       → React SPA
@@ -94,7 +94,7 @@ monitor.set_agent_callback(_auto_heal_callback)
 
 # ── FastAPI app ──────────────────────────────────────────────────────────
 
-app = FastAPI(title="AgentOS")
+app = FastAPI(title="MuchovhaOS")
 
 # Static frontend
 STATIC_DIR = config.server.static_dir
@@ -487,4 +487,4 @@ async def list_sessions():
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "service": "AgentOS", "tools": tools.count, "skills": len(skills.list_skills())}
+    return {"status": "ok", "service": "MuchovhaOS", "tools": tools.count, "skills": len(skills.list_skills())}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Terminal } from '@xterm/xterm'
+import { CanvasAddon } from '@xterm/addon-canvas'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -99,6 +100,8 @@ export function TerminalPanel() {
     searchRef.current = searchAddon
 
     term.open(containerRef.current)
+    const canvasAddon = new CanvasAddon()
+    term.loadAddon(canvasAddon)
     fitAddon.fit()
 
     term.onData((data) => {

@@ -1,5 +1,5 @@
 """
-Autonomous Health Monitor — the self-healing brain of AgentOS.
+Autonomous Health Monitor — the self-healing brain of MuchovhaOS.
 
 Runs on a background timer, checks system vitals via the C++ kernel,
 detects anomalies, and optionally auto-triggers the agent to investigate/fix.

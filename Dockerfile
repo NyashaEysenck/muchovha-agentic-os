@@ -75,7 +75,7 @@ COPY --from=kernel-build /build/kernel/build/agent_kernel*.so /usr/lib/python3/d
 COPY app/ app/
 
 # Bundled skills
-COPY skills/ /etc/agentos/skills/
+COPY skills/ /etc/muchovhaos/skills/
 
 # Built frontend
 COPY --from=frontend-build /build/dist/ app/static/
@@ -84,7 +84,7 @@ COPY --from=frontend-build /build/dist/ app/static/
 RUN mkdir -p /home/agent/skills && chown agent:agent /home/agent/skills
 
 # Welcome message
-RUN echo '#!/bin/bash\necho ""\necho "  AgentOS — Agentic Operating System"\necho "  The AI agent has full access to this environment."\necho "  MCP endpoint: /mcp"\necho ""\n' > /etc/profile.d/welcome.sh && \
+RUN echo '#!/bin/bash\necho ""\necho "  MuchovhaOS — Agentic Operating System"\necho "  The AI agent has full access to this environment."\necho "  MCP endpoint: /mcp"\necho ""\n' > /etc/profile.d/welcome.sh && \
     chmod +x /etc/profile.d/welcome.sh
 
 EXPOSE 8000

@@ -28,7 +28,7 @@ class TerminalConfig:
 
 @dataclass(frozen=True)
 class SkillsConfig:
-    system_dir: str = "/etc/agentos/skills"
+    system_dir: str = "/etc/muchovhaos/skills"
     user_dir: str = field(default_factory=lambda: os.path.expanduser("~/skills"))
     bundled_dir: str = field(
         default_factory=lambda: os.path.join(os.path.dirname(os.path.dirname(__file__)), "skills"),
