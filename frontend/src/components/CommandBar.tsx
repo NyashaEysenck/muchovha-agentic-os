@@ -162,25 +162,28 @@ export function CommandBar() {
   // ── Run agent ─────────────────────────────────────────────────────
   const runAgent = useCallback(async (goal?: string) => {
     const msg = goal || input.trim()
-    if (!msg || isRunning) return
+    const currentAttachments = useStore.getState().attachments
+    const hasAttachments = currentAttachments.length > 0
+    if ((!msg && !hasAttachments) || isRunning) return
     setInput('')
     setRunning(true)
     const controller = new AbortController()
     abortRef.current = controller
 
-    const currentAttachments = useStore.getState().attachments
     const attachmentIds = currentAttachments.map((a) => a.id)
     const attachmentPreviews = currentAttachments.map((a) => ({ name: a.name, mime_type: a.mime_type, previewUrl: a.previewUrl }))
     clearAttachments()
 
-    addEvent({ id: `user-${Date.now()}`, type: 'text', data: { text: msg, role: 'user', attachments: attachmentPreviews.length > 0 ? attachmentPreviews : undefined }, timestamp: Date.now() })
+    const displayText = msg || (hasAttachments ? 'Sent audio' : '')
+    addEvent({ id: `user-${Date.now()}`, type: 'text', data: { text: displayText, role: 'user', attachments: attachmentPreviews.length > 0 ? attachmentPreviews : undefined }, timestamp: Date.now() })
 
     try {
       const terminalContext = (window as any).__getTerminalContext?.() || ''
+      const goalText = msg ? msg + (terminalContext ? `\n\n<terminal_context>\n${terminalContext}\n</terminal_context>` : '') : ''
       const res = await fetch('/api/agent/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ goal: msg + (terminalContext ? `\n\n<terminal_context>\n${terminalContext}\n</terminal_context>` : ''), session_id: sessionId, attachment_ids: attachmentIds }),
+        body: JSON.stringify({ goal: goalText, session_id: sessionId, attachment_ids: attachmentIds }),
         signal: controller.signal,
       })
       if (!res.ok) { addEvent({ id: `err-${Date.now()}`, type: 'error', data: { error: `HTTP ${res.status}` }, timestamp: Date.now() }); return }

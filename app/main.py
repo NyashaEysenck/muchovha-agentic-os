@@ -224,7 +224,7 @@ async def upload_file(file: UploadFile = File(...)):
 
 
 class AgentRequest(BaseModel):
-    goal: str
+    goal: str = ""
     session_id: str = "default"
     attachment_ids: list[str] = []
 

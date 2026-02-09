@@ -204,9 +204,11 @@ class AgentLoop:
         user_text = goal
         active_ctx = self._skills.active_skills_context()
         if active_ctx:
-            user_text = f"{active_ctx}\n\n{goal}"
+            user_text = f"{active_ctx}\n\n{goal}" if goal else active_ctx
 
-        user_parts: list[Any] = [genai_types.Part(text=user_text)]
+        user_parts: list[Any] = []
+        if user_text:
+            user_parts.append(genai_types.Part(text=user_text))
 
         if attachments:
             for att in attachments:
@@ -214,6 +216,10 @@ class AgentLoop:
                     genai_types.Part.from_bytes(data=att.data, mime_type=att.mime_type)
                 )
                 logger.info("Attached %s (%s, %d bytes)", att.name, att.mime_type, len(att.data))
+
+        # Ensure at least one part exists for the API call
+        if not user_parts:
+            user_parts.append(genai_types.Part(text=""))
 
         session.add_user_content(user_parts)
         session.trim(config.ai.max_history_turns)

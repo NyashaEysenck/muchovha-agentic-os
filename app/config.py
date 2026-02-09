@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class AIConfig:
     api_key: str = field(default_factory=lambda: os.environ.get("GEMINI_API_KEY", ""))
-    model: str = "gemini-3-flash-preview"
+    model: str = "gemini-2.5-flash"
     max_output_tokens: int = 8192
     max_history_turns: int = 40
     max_agent_iterations: int = 15
